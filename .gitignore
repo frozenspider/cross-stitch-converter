@@ -1,0 +1,28 @@
+# Eclipse
+/bin
+.settings
+.classpath
+.project
+
+# IDEA
+*.iml
+.idea/
+
+# sbt
+.cache-*
+target/
+src_managed/
+lib_managed/
+project/project/
+project/target/
+
+# Development
+/_build
+/_downloads
+
+# Application
+/log
+/cfg
+
+*.class
+*.log
