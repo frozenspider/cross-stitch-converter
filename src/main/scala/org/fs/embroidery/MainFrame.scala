@@ -9,21 +9,28 @@ import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.io.File
 
+import scala.concurrent.Future
+import scala.swing.BorderPanel
 import scala.swing._
 import scala.swing.event.ButtonClicked
 import scala.swing.event.MouseClicked
+import scala.swing.event.ValueChanged
 import scala.util.Failure
 import scala.util.Success
+
+import scala.concurrent.ExecutionContext.Implicits.global
 
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigValue
 import com.typesafe.config.ConfigValueFactory
+import hu.kazocsaba.imageviewer.DefaultStatusBar
 import hu.kazocsaba.imageviewer.ImageViewer
 import javax.imageio.ImageIO
 import org.slf4s.Logging
 import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.KeyStroke
+import javax.swing.SwingUtilities
 import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.filechooser.FileSystemView
@@ -35,8 +42,17 @@ class MainFrame(
     with Logging {
 
   private def defaultBorder = BorderFactory.createLineBorder(Color.gray, 1)
-
+  global
   private val viewer = new ImageViewer()
+  private val pixelateSlider = new Slider {
+    paintTicks = true
+    paintLabels = true
+    snapToTicks = true
+    minorTickSpacing = 1
+    min = 3
+    value = min
+  }
+
   private val images = new Images(true)
 
   private var loadedFileOption: Option[File] = None
@@ -48,6 +64,8 @@ class MainFrame(
 
   // TODO: Clipboard
   // TODO: Drag-n-drop
+  // TODO: Zoom
+
   attempt {
     def UnfocusableButton(label: String) = new Button(label) { focusable = false }
 
@@ -58,6 +76,12 @@ class MainFrame(
     val loadFileInput = new TextField()
     val saveFileInput = new TextField()
 
+    viewer.setStatusBar(new DefaultStatusBar {
+      override def updateLabel(image: BufferedImage, x: Int, y: Int, availableWidth: Int): Unit = {
+        super.updateLabel(image, x, y, availableWidth)
+        label.setText(label.getText + ", zoom " + viewer.getZoomFactor)
+      }
+    })
     contents = new BorderPanel {
       def addHotkey(key: String, event: Int, mod: Int, f: => Unit): Unit = {
         peer
@@ -76,6 +100,11 @@ class MainFrame(
       layout(topPanel) = North
       val centerPanel = new BorderPanel {
         layout(Component.wrap(viewer.getComponent)) = Center
+        val pixelatePanel = new BorderPanel {
+          layout(new Label("Pixelation step:")) = West
+          layout(pixelateSlider) = Center
+        }
+        layout(pixelatePanel) = South
       }
       layout(centerPanel) = Center
       val bottomPanel = new BorderPanel {
@@ -86,7 +115,7 @@ class MainFrame(
       addHotkey("save", KeyEvent.VK_S, InputEvent.CTRL_MASK, ???)
     }
     def styleComponents(): Unit = {
-//      findNextBtn.margin = new Insets(0, 2, 0, 2)
+//      pixelateSlider.margin = new Insets(0, 2, 0, 2)
 //      findFromStartBtn.margin = new Insets(0, 2, 0, 2)
 //      pasteLeftBtn.margin = new Insets(2, 2, 2, 2)
 //      pasteRightBtn.margin = new Insets(2, 2, 2, 2)
@@ -97,26 +126,24 @@ class MainFrame(
 
     listenTo(
       browseLoadButton,
-      browseSaveButton
+      browseSaveButton,
+      pixelateSlider
 //      subtitlesList.mouse.clicks
     )
     // Button reactions
     reactions += {
       case ButtonClicked(`browseLoadButton`) => attempt(browseLoad())
       case ButtonClicked(`browseSaveButton`) => attempt(browseSave())
+      case ValueChanged(`pixelateSlider`)    => attempt(pixelateSliderChanged())
     }
-    // Mouse click reactions
-//    reactions += {
-//      case MouseClicked(`subtitlesList`, _, _, clicks, _) if clicks >= 2 => subtitlesList.selectedEntry map editRecord
-//    }
 
     title = BuildInfo.fullPrettyName
     size = new Dimension(1000, 700)
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
-    images.load(ImageIO.read(new File("_build/img.png")))
-    render()
+    load(new File("_build/img.png"))
+    RenderAsync.enqueue()
   }
 
   private def createFileChooser(lastAccessedFilePath: String): FileChooser = {
@@ -134,8 +161,10 @@ class MainFrame(
   private def browseLoad(): Unit = {
     val fc = createFileChooser(getConfigStringOr("loadFilePath", defaultPath))
     fc.showOpenDialog(this) match {
-      case FileChooser.Result.Approve => ???
-      case _                          => // NOOP
+      case FileChooser.Result.Approve =>
+        updateConfigString("loadFilePath", fc.selectedFile.getAbsolutePath)
+        load(fc.selectedFile)
+      case _ => // NOOP
     }
   }
 
@@ -143,8 +172,15 @@ class MainFrame(
     ???
   }
 
-  private def render(): Unit = {
-    viewer.setImage(images.updated())
+  def load(file: File): Unit = {
+    val img = ImageIO.read(file)
+    pixelateSlider.value = pixelateSlider.min
+    images.load(img)
+    RenderAsync.enqueue()
+  }
+
+  def pixelateSliderChanged(): Unit = {
+    RenderAsync.enqueue()
   }
 
   //
@@ -182,9 +218,55 @@ class MainFrame(
     if (config.hasPath(path)) {
       config.getString(path)
     } else {
-      config = config.withValue(path, ConfigValueFactory.fromAnyRef(default))
-      saveConfig(config)
+      updateConfigString(path, default)
       default
+    }
+  }
+
+  private def updateConfigString(path: String, value: String): Unit = this.synchronized {
+    config = config.withValue(path, ConfigValueFactory.fromAnyRef(value))
+    saveConfig(config)
+  }
+
+  object RenderAsync {
+    private var shouldRender: Boolean = false
+
+    val thread = new Thread(() => {
+      while (!Thread.currentThread().isInterrupted) {
+        RenderAsync.synchronized {
+          if (shouldRender) {
+            shouldRender = false
+            render()
+          }
+          RenderAsync.wait()
+        }
+      }
+    })
+    thread.setDaemon(true)
+    thread.start()
+
+    def enqueue(): Unit = Future {
+      RenderAsync.synchronized {
+        shouldRender = true
+        RenderAsync.notifyAll()
+      }
+    }
+
+    private def render(): Unit = {
+      images.pixelate(pixelateSlider.value)
+      val image = images.updated()
+
+      SwingUtilities.invokeLater(() => {
+        viewer.setImage(image)
+
+        val pixelateMax = (image.getWidth min image.getHeight) / 10
+        pixelateSlider.max = pixelateMax
+        pixelateSlider.majorTickSpacing = pixelateMax / 3
+        pixelateSlider.labels = {
+          val range = pixelateSlider.min +: (10 until pixelateSlider.max by 10) :+ pixelateSlider.max
+          range.map(i => (i, new Label(s"$i"))).toMap
+        }
+      })
     }
   }
 }
