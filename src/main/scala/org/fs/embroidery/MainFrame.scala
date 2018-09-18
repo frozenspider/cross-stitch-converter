@@ -10,6 +10,7 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
+import scala.collection.JavaConverters
 import scala.concurrent.Future
 import scala.swing.BorderPanel
 import scala.swing._
@@ -25,7 +26,12 @@ import com.typesafe.config.ConfigValue
 import com.typesafe.config.ConfigValueFactory
 import hu.kazocsaba.imageviewer.DefaultStatusBar
 import hu.kazocsaba.imageviewer.ImageViewer
+import javax.imageio.IIOImage
 import javax.imageio.ImageIO
+import javax.imageio.ImageTypeSpecifier
+import javax.imageio.ImageWriter
+import javax.imageio.metadata.IIOMetadata
+import javax.imageio.metadata.IIOMetadataNode
 import org.slf4s.Logging
 import javax.swing.BorderFactory
 import javax.swing.JComponent
@@ -34,7 +40,6 @@ import javax.swing.SwingUtilities
 import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.filechooser.FileSystemView
-import org.apache.commons.io.FileUtils
 import org.apache.commons.io.FilenameUtils
 
 class MainFrame(
@@ -174,10 +179,11 @@ class MainFrame(
     RenderAsync.enqueue()
   }
 
-  private def createFileChooser(lastAccessedPath: String): FileChooser = {
-    val lastAccessedFile = new File(lastAccessedPath)
-    val fc               = new FileChooser(if (lastAccessedFile.exists) lastAccessedFile else lastAccessedFile.getParentFile)
-    fc.fileFilter = new FileNameExtensionFilter("Images", "jpg", "jpeg", "gif", "png")
+  private def createFileChooser(lastAccessedPath: String, extFilter: (String, Seq[String])): FileChooser = {
+    val lastAccessedFile       = new File(lastAccessedPath)
+    val fc                     = new FileChooser(if (lastAccessedFile.exists) lastAccessedFile else lastAccessedFile.getParentFile)
+    val fileNameExtensionLabel = extFilter._1 + (extFilter._2 map (ext => s"*.$ext") mkString (" (", ", ", ")"))
+    fc.fileFilter = new FileNameExtensionFilter(fileNameExtensionLabel, extFilter._2: _*)
     fc.peer.setPreferredSize(new Dimension(800, 600))
     fc
   }
@@ -187,7 +193,10 @@ class MainFrame(
   //
 
   private def loadClicked(): Unit = {
-    val fc = createFileChooser(getConfigStringOr(MainFrame.LoadFilePath, defaultPath))
+    val fc = createFileChooser(
+      getConfigStringOr(MainFrame.LoadFilePath, defaultPath),
+      ("Images", Seq("jpg", "jpeg", "gif", "png"))
+    )
     fc.showOpenDialog(this) match {
       case FileChooser.Result.Approve =>
         updateConfigString(MainFrame.LoadFilePath, fc.selectedFile.getParentFile.getAbsolutePath)
@@ -197,29 +206,86 @@ class MainFrame(
   }
 
   private def saveClicked(): Unit = {
-    val fc = createFileChooser(getConfigStringOr(MainFrame.SaveFilePath, defaultPath))
+    val fc = createFileChooser(
+      getConfigStringOr(MainFrame.SaveFilePath, defaultPath),
+      ("PNG image", Seq("png"))
+    )
     fc.showSaveDialog(this) match {
       case FileChooser.Result.Approve =>
         updateConfigString(MainFrame.SaveFilePath, fc.selectedFile.getParentFile.getAbsolutePath)
-        save(fc.selectedFile)
+        val file = fc.selectedFile
+        val file2 =
+          if (FilenameUtils.isExtension(file.getName, "png"))
+            file
+          else
+            new File(file.getAbsolutePath + ".png")
+        if (!file2.exists() || accepted(Dialog.showConfirmation(this, "File exists, overwrite?", "Confirm"))) {
+          save(file2)
+        }
       case _ => // NOOP
     }
   }
 
-  def load(file: File): Unit = {
+  private def load(file: File): Unit = {
     saveButton.enabled = true
-    val img = ImageIO.read(file)
+    val image = ImageIO.read(file)
     pixelateSlider.value = 10
-    imagesService.load(img)
+    imagesService.load(image)
     RenderAsync.enqueue()
   }
 
-  def save(file: File): Unit = {
-    val img = imagesService.previousUpdated
-    val fmt = Option(FilenameUtils.getExtension(file.getName)) getOrElse "png"
-    if (!ImageIO.write(img, fmt, file)) {
-      ImageIO.write(img, "png", new File(file.getAbsolutePath + ".png"))
-    }
+  private def save(file: File): Unit = {
+    import JavaConverters._
+    val image = imagesService.previousUpdated
+    val fmt   = "png"
+    val file2 = if (FilenameUtils.isExtension(file.getName, fmt)) file else new File(file.getAbsolutePath + ".png")
+    saveInner(file2, image, ImageIO.getImageWritersByFormatName(fmt).asScala.toList)
+  }
+
+  private def saveInner(
+      file: File,
+      image: BufferedImage,
+      writers: List[ImageWriter]
+  ): Boolean = writers match {
+    case Nil => false
+    case writer :: rest =>
+      val typeSpecifier = ImageTypeSpecifier.createFromBufferedImageType(image.getType)
+      val writeParam    = writer.getDefaultWriteParam
+      val metadata      = writer.getDefaultImageMetadata(typeSpecifier, writeParam)
+      if (metadata.isReadOnly || !metadata.isStandardMetadataFormatSupported) {
+        saveInner(file, image, rest)
+      } else {
+        setPngDpi(metadata)
+        val stream = ImageIO.createImageOutputStream(file)
+        try {
+          writer.setOutput(stream)
+          writer.write(metadata, new IIOImage(image, null, metadata), writeParam)
+          true
+        } catch {
+          case th: Throwable =>
+            showError(th)
+            false
+        } finally {
+          stream.close()
+        }
+      }
+  }
+
+  private def setPngDpi(metadata: IIOMetadata): Unit = {
+    val cmPerInch = 2.54
+    // For PMG, it's dots per millimeter
+    val dotsPerMilli = imagesService.dpi.toDouble / 10 / cmPerInch
+
+    val horiz = new IIOMetadataNode("HorizontalPixelSize")
+    val vert  = new IIOMetadataNode("VerticalPixelSize")
+    horiz.setAttribute("value", dotsPerMilli.toString)
+    vert.setAttribute("value", dotsPerMilli.toString)
+    val dim = new IIOMetadataNode("Dimension")
+    dim.appendChild(horiz)
+    dim.appendChild(vert)
+    val root = new IIOMetadataNode("javax_imageio_1.0")
+    root.appendChild(dim)
+    metadata.mergeTree("javax_imageio_1.0", root)
   }
 
   def pixelateSliderChanged(): Unit = {

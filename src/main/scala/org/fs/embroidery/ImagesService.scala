@@ -9,7 +9,7 @@ import java.awt.image.BufferedImage
 
 class ImagesService(isPortrait: => Boolean) {
 
-  val dpi: Int = 72
+  val dpi: Int = 150
 
   private val a4SizeMm: (Int, Int)         = (210, 297)
   private val a4SizeInch: (Double, Double) = (8.27d, 11.69d)
