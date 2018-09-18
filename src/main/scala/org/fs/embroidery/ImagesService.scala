@@ -60,10 +60,8 @@ class ImagesService(isPortrait: => Boolean) {
     processedImageGraphics = processedImage.createGraphics()
   }
 
-  def previousUpdated: BufferedImage = processedImage
-
   /** Re-render canvas and get updated image */
-  def updated(scalingFactor: Double, pixelationStep: Int): BufferedImage = this.synchronized {
+  def updatedCanvas(scalingFactor: Double, pixelationStep: Int): BufferedImage = this.synchronized {
     val a4 = a4Image
     if (a4.getWidth != canvasImage.getWidth) {
       canvasImage = new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.getType)
@@ -78,6 +76,10 @@ class ImagesService(isPortrait: => Boolean) {
     canvasImageGraphics.drawImage(processedImage, 0, 0, null)
     canvasImage
   }
+
+  def previousUpdatedCanvas: BufferedImage = canvasImage
+
+  def previousUpdatedImage: BufferedImage = processedImage
 
   private def scaleImage(scalingFactor: Double): Unit = {
     this.processedImage = {

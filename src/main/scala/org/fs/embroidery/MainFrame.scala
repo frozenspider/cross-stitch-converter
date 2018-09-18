@@ -5,6 +5,8 @@ import java.awt.Color
 import java.awt.Font
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
+import java.awt.event.MouseListener
 import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.io.File
@@ -26,6 +28,7 @@ import com.typesafe.config.ConfigValue
 import com.typesafe.config.ConfigValueFactory
 import hu.kazocsaba.imageviewer.DefaultStatusBar
 import hu.kazocsaba.imageviewer.ImageViewer
+import hu.kazocsaba.imageviewer.ResizeStrategy
 import javax.imageio.IIOImage
 import javax.imageio.ImageIO
 import javax.imageio.ImageTypeSpecifier
@@ -35,6 +38,8 @@ import javax.imageio.metadata.IIOMetadataNode
 import org.slf4s.Logging
 import javax.swing.BorderFactory
 import javax.swing.JComponent
+import javax.swing.JLayeredPane
+import javax.swing.JScrollPane
 import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.WindowConstants
@@ -60,24 +65,24 @@ class MainFrame(
     minorTickSpacing = 1
     min = 3
   }
-  private val scaleLogCoeff = 100
   private val scaleSlider = new Slider {
+    import Scaling._
     paintTicks = true
     paintLabels = true
-    minorTickSpacing = scaleLogCoeff / 5
-    min = -scaleLogCoeff * 2
-    max = scaleLogCoeff * 2
+    minorTickSpacing = LogCoeff / 5
+    min = -LogCoeff * 2
+    max = LogCoeff * 2
     value = 0
     labels = Map(
-      -scaleLogCoeff * 2                      -> new Label("x0.01"),
-      (-scaleLogCoeff * math.log10(20)).toInt -> new Label("x0.05"),
-      -scaleLogCoeff                          -> new Label("x0.1"),
-      (-scaleLogCoeff * math.log10(2)).toInt  -> new Label("x0.5"),
-      0                                       -> new Label("x1"),
-      (scaleLogCoeff * math.log10(2)).toInt   -> new Label("x2"),
-      scaleLogCoeff                           -> new Label("x10"),
-      (scaleLogCoeff * math.log10(20)).toInt  -> new Label("x20"),
-      scaleLogCoeff * 2                       -> new Label("x100")
+      (-LogCoeff * 2)                    -> new Label("x0.01"),
+      (-LogCoeff * math.log10(20)).toInt -> new Label("x0.05"),
+      (-LogCoeff)                        -> new Label("x0.1"),
+      (-LogCoeff * math.log10(2)).toInt  -> new Label("x0.5"),
+      0                                  -> new Label("x1"),
+      (LogCoeff * math.log10(2)).toInt   -> new Label("x2"),
+      (LogCoeff)                         -> new Label("x10"),
+      (LogCoeff * math.log10(20)).toInt  -> new Label("x20"),
+      (LogCoeff * 2)                     -> new Label("x100")
     )
   }
 
@@ -97,9 +102,33 @@ class MainFrame(
   attempt {
     saveButton.enabled = false
 
-    val loadFileInput = new TextField()
-    val saveFileInput = new TextField()
-
+    val zoomCoeff = 1.2
+    val viewerScrollPane = viewer.getComponent
+      .getComponent(0)
+      .asInstanceOf[JScrollPane]
+    val viewerImageComponent = viewerScrollPane.getViewport.getView
+      .asInstanceOf[JLayeredPane]
+      .getComponent(0)
+    viewerImageComponent.addMouseWheelListener(e => {
+      if ((e.getModifiersEx & InputEvent.ALT_DOWN_MASK) != 0) {
+        val notches = e.getWheelRotation
+        if (viewer.getResizeStrategy != ResizeStrategy.CUSTOM_ZOOM) {
+          val transform = viewer.getImageTransform
+          viewer.setResizeStrategy(ResizeStrategy.CUSTOM_ZOOM)
+          viewer.setZoomFactor(transform.getScaleX)
+        }
+        println(viewer.getZoomFactor)
+        if (notches < 0) {
+          println("Mouse wheel moved UP " + -notches + " notch(es)")
+          viewer.setZoomFactor(viewer.getZoomFactor * zoomCoeff * (-notches))
+        } else {
+          println("Mouse wheel moved DOWN " + notches + " notch(es)")
+          viewer.setZoomFactor(viewer.getZoomFactor / zoomCoeff / notches)
+        }
+      } else {
+        e.getComponent.getParent.dispatchEvent(e)
+      }
+    })
     viewer.setStatusBar(new DefaultStatusBar {
       override def updateLabel(image: BufferedImage, x: Int, y: Int, availableWidth: Int): Unit = {
         super.updateLabel(image, x, y, availableWidth)
@@ -175,7 +204,7 @@ class MainFrame(
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
-    load(new File("_build/img.png"))
+//    load(new File("_build/img.png"))
     RenderAsync.enqueue()
   }
 
@@ -237,7 +266,7 @@ class MainFrame(
 
   private def save(file: File): Unit = {
     import JavaConverters._
-    val image = imagesService.previousUpdated
+    val image = imagesService.previousUpdatedImage
     val fmt   = "png"
     val file2 = if (FilenameUtils.isExtension(file.getName, fmt)) file else new File(file.getAbsolutePath + ".png")
     saveInner(file2, image, ImageIO.getImageWritersByFormatName(fmt).asScala.toList)
@@ -344,6 +373,18 @@ class MainFrame(
     saveConfig(config)
   }
 
+  object Scaling {
+    val LogCoeff = 100
+
+    def linearToLog(linear: Int): Double = {
+      math.pow(10, linear.toDouble / LogCoeff)
+    }
+
+    def logToLinear(log: Double): Int = {
+      (LogCoeff * math.log10(log)).toInt
+    }
+  }
+
   object RenderAsync {
     private val shouldRender = new AtomicBoolean(false)
 
@@ -372,8 +413,8 @@ class MainFrame(
     }
 
     private def render(): Unit = {
-      val scalingFactor = math.pow(10, scaleSlider.value.toDouble / scaleLogCoeff)
-      val image         = imagesService.updated(scalingFactor, pixelateSlider.value)
+      val scalingFactor = Scaling.linearToLog(scaleSlider.value)
+      val image         = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value)
 
       SwingUtilities.invokeAndWait(() => {
         viewer.setImage(image)
