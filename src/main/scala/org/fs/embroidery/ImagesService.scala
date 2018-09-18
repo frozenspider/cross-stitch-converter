@@ -82,8 +82,8 @@ class ImagesService(isPortrait: => Boolean) {
   private def scaleImage(scalingFactor: Double): Unit = {
     this.processedImage = {
       val resultingImage = new BufferedImage(
-        (processedImage.getWidth * scalingFactor).toInt min canvasImage.getWidth,
-        (processedImage.getHeight * scalingFactor).toInt min canvasImage.getHeight,
+        (processedImage.getWidth * scalingFactor).toInt min canvasImage.getWidth max 1,
+        (processedImage.getHeight * scalingFactor).toInt min canvasImage.getHeight max 1,
         processedImage.getType
       )
       val atOp = new AffineTransformOp(new AffineTransform {

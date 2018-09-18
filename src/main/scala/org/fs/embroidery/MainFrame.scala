@@ -230,6 +230,7 @@ class MainFrame(
     saveButton.enabled = true
     val image = ImageIO.read(file)
     pixelateSlider.value = 10
+    scaleSlider.value = 0
     imagesService.load(image)
     RenderAsync.enqueue()
   }
@@ -308,9 +309,9 @@ class MainFrame(
     }
   }
 
-  private def showError(ex: Throwable): Unit = {
-    log.error("Something bad happened", ex)
-    Dialog.showMessage(message = ex, title = "Something bad happened", messageType = Dialog.Message.Error)
+  private def showError(th: Throwable): Unit = {
+    log.error("Something bad happened", th)
+    Dialog.showMessage(message = th, title = "Something bad happened", messageType = Dialog.Message.Error)
   }
 
   private def showError(s: String): Unit = {
@@ -349,7 +350,11 @@ class MainFrame(
     val thread = new Thread(() => {
       while (!Thread.currentThread().isInterrupted) {
         while (shouldRender.getAndSet(false)) {
-          render()
+          try {
+            render()
+          } catch {
+            case th: Throwable => showError(th)
+          }
         }
         RenderAsync.synchronized {
           RenderAsync.wait()
