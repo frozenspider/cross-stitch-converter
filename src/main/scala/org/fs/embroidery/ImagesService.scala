@@ -9,7 +9,8 @@ import java.awt.image.BufferedImage
 
 class ImagesService(isPortrait: => Boolean) {
 
-  private val dpi: Int                     = 96
+  val dpi: Int = 72
+
   private val a4SizeMm: (Int, Int)         = (210, 297)
   private val a4SizeInch: (Double, Double) = (8.27d, 11.69d)
 
@@ -58,6 +59,8 @@ class ImagesService(isPortrait: => Boolean) {
     processedImage = image
     processedImageGraphics = processedImage.createGraphics()
   }
+
+  def previousUpdated: BufferedImage = processedImage
 
   /** Re-render canvas and get updated image */
   def updated(scalingFactor: Double, pixelationStep: Int): BufferedImage = this.synchronized {

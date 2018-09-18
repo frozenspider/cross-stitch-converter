@@ -34,6 +34,8 @@ import javax.swing.SwingUtilities
 import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.filechooser.FileSystemView
+import org.apache.commons.io.FileUtils
+import org.apache.commons.io.FilenameUtils
 
 class MainFrame(
     var config: Config,
@@ -43,6 +45,9 @@ class MainFrame(
 
   private def defaultBorder = BorderFactory.createLineBorder(Color.gray, 1)
   private val viewer        = new ImageViewer()
+  private val loadButton    = UnfocusableButton("Load")
+  private val saveButton    = UnfocusableButton("Save")
+
   private val pixelateSlider = new Slider {
     paintTicks = true
     paintLabels = true
@@ -85,11 +90,7 @@ class MainFrame(
   // TODO: Mouse controls
 
   attempt {
-    def UnfocusableButton(label: String) = new Button(label) { focusable = false }
-
-    val browseLoadButton = UnfocusableButton("Browse")
-    val browseSaveButton = UnfocusableButton("Browse")
-    val saveBtn          = UnfocusableButton("Save")
+    saveButton.enabled = false
 
     val loadFileInput = new TextField()
     val saveFileInput = new TextField()
@@ -112,8 +113,12 @@ class MainFrame(
 
       import BorderPanel.Position._
       val topPanel = new BorderPanel {
-        layout(loadFileInput) = Center
-        layout(browseLoadButton) = East
+        layout(
+          new FlowPanel(
+            loadButton,
+            saveButton
+          )
+        ) = West
       }
       layout(topPanel) = North
       val centerPanel = new BorderPanel {
@@ -131,12 +136,9 @@ class MainFrame(
         layout(configPanel) = South
       }
       layout(centerPanel) = Center
-      val bottomPanel = new BorderPanel {
-        layout(saveFileInput) = Center
-        layout(browseSaveButton) = East
-      }
+      val bottomPanel = new BorderPanel {}
       layout(bottomPanel) = South
-      addHotkey("save", KeyEvent.VK_S, InputEvent.CTRL_MASK, ???)
+      addHotkey("save", KeyEvent.VK_S, InputEvent.CTRL_MASK, saveClicked())
     }
     def styleComponents(): Unit = {
 //      pixelateSlider.margin = new Insets(0, 2, 0, 2)
@@ -149,18 +151,18 @@ class MainFrame(
     styleComponents()
 
     listenTo(
-      browseLoadButton,
-      browseSaveButton,
+      loadButton,
+      saveButton,
       pixelateSlider,
       scaleSlider
 //      subtitlesList.mouse.clicks
     )
     // Button reactions
     reactions += {
-      case ButtonClicked(`browseLoadButton`) => attempt(browseLoad())
-      case ButtonClicked(`browseSaveButton`) => attempt(browseSave())
-      case ValueChanged(`pixelateSlider`)    => attempt(pixelateSliderChanged())
-      case ValueChanged(`scaleSlider`)       => attempt(scaleSliderChanged())
+      case ButtonClicked(`loadButton`)    => attempt(loadClicked())
+      case ButtonClicked(`saveButton`)    => attempt(saveClicked())
+      case ValueChanged(`pixelateSlider`) => attempt(pixelateSliderChanged())
+      case ValueChanged(`scaleSlider`)    => attempt(scaleSliderChanged())
     }
 
     title = BuildInfo.fullPrettyName
@@ -172,9 +174,9 @@ class MainFrame(
     RenderAsync.enqueue()
   }
 
-  private def createFileChooser(lastAccessedFilePath: String): FileChooser = {
-    val lastAccessdFile = new File(lastAccessedFilePath)
-    val fc              = new FileChooser(if (lastAccessdFile.exists) lastAccessdFile else lastAccessdFile.getParentFile)
+  private def createFileChooser(lastAccessedPath: String): FileChooser = {
+    val lastAccessedFile = new File(lastAccessedPath)
+    val fc               = new FileChooser(if (lastAccessedFile.exists) lastAccessedFile else lastAccessedFile.getParentFile)
     fc.fileFilter = new FileNameExtensionFilter("Images", "jpg", "jpeg", "gif", "png")
     fc.peer.setPreferredSize(new Dimension(800, 600))
     fc
@@ -184,25 +186,40 @@ class MainFrame(
   // Actions and Callbacks
   //
 
-  private def browseLoad(): Unit = {
-    val fc = createFileChooser(getConfigStringOr("loadFilePath", defaultPath))
+  private def loadClicked(): Unit = {
+    val fc = createFileChooser(getConfigStringOr(MainFrame.LoadFilePath, defaultPath))
     fc.showOpenDialog(this) match {
       case FileChooser.Result.Approve =>
-        updateConfigString("loadFilePath", fc.selectedFile.getAbsolutePath)
+        updateConfigString(MainFrame.LoadFilePath, fc.selectedFile.getParentFile.getAbsolutePath)
         load(fc.selectedFile)
       case _ => // NOOP
     }
   }
 
-  private def browseSave(): Unit = {
-    ???
+  private def saveClicked(): Unit = {
+    val fc = createFileChooser(getConfigStringOr(MainFrame.SaveFilePath, defaultPath))
+    fc.showSaveDialog(this) match {
+      case FileChooser.Result.Approve =>
+        updateConfigString(MainFrame.SaveFilePath, fc.selectedFile.getParentFile.getAbsolutePath)
+        save(fc.selectedFile)
+      case _ => // NOOP
+    }
   }
 
   def load(file: File): Unit = {
+    saveButton.enabled = true
     val img = ImageIO.read(file)
     pixelateSlider.value = 10
     imagesService.load(img)
     RenderAsync.enqueue()
+  }
+
+  def save(file: File): Unit = {
+    val img = imagesService.previousUpdated
+    val fmt = Option(FilenameUtils.getExtension(file.getName)) getOrElse "png"
+    if (!ImageIO.write(img, fmt, file)) {
+      ImageIO.write(img, "png", new File(file.getAbsolutePath + ".png"))
+    }
   }
 
   def pixelateSliderChanged(): Unit = {
@@ -241,6 +258,8 @@ class MainFrame(
       case _                                    => false
     }
   }
+
+  private def UnfocusableButton(label: String) = new Button(label) { focusable = false }
 
   private val defaultPath = FileSystemView.getFileSystemView.getHomeDirectory.getAbsolutePath
 
@@ -298,4 +317,9 @@ class MainFrame(
       })
     }
   }
+}
+
+object MainFrame {
+  val LoadFilePath = "loadFilePath"
+  val SaveFilePath = "saveFilePath"
 }
