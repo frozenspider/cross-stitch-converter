@@ -110,22 +110,22 @@ class MainFrame(
       .asInstanceOf[JLayeredPane]
       .getComponent(0)
     viewerImageComponent.addMouseWheelListener(e => {
-      if ((e.getModifiersEx & InputEvent.ALT_DOWN_MASK) != 0) {
+      if ((e.getModifiersEx & InputEvent.CTRL_DOWN_MASK) != 0) {
         val notches = e.getWheelRotation
         if (viewer.getResizeStrategy != ResizeStrategy.CUSTOM_ZOOM) {
           val transform = viewer.getImageTransform
           viewer.setResizeStrategy(ResizeStrategy.CUSTOM_ZOOM)
           viewer.setZoomFactor(transform.getScaleX)
         }
-        println(viewer.getZoomFactor)
-        if (notches < 0) {
-          println("Mouse wheel moved UP " + -notches + " notch(es)")
-          viewer.setZoomFactor(viewer.getZoomFactor * zoomCoeff * (-notches))
+        val newZoomFactor = if (notches < 0) {
+          viewer.getZoomFactor * zoomCoeff * (-notches)
         } else {
-          println("Mouse wheel moved DOWN " + notches + " notch(es)")
-          viewer.setZoomFactor(viewer.getZoomFactor / zoomCoeff / notches)
+          viewer.getZoomFactor / zoomCoeff / notches
         }
+        viewer.setZoomFactor(newZoomFactor)
+        e.consume()
       } else {
+        e.getComponent.getParent.requestFocus()
         e.getComponent.getParent.dispatchEvent(e)
       }
     })
