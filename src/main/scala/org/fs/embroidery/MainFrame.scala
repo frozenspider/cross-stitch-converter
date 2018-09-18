@@ -8,6 +8,7 @@ import java.awt.event.KeyEvent
 import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.concurrent.Future
 import scala.swing.BorderPanel
@@ -17,7 +18,6 @@ import scala.swing.event.MouseClicked
 import scala.swing.event.ValueChanged
 import scala.util.Failure
 import scala.util.Success
-
 import scala.concurrent.ExecutionContext.Implicits.global
 
 import com.typesafe.config.Config
@@ -42,21 +42,39 @@ class MainFrame(
     with Logging {
 
   private def defaultBorder = BorderFactory.createLineBorder(Color.gray, 1)
-  global
-  private val viewer = new ImageViewer()
+  private val viewer        = new ImageViewer()
   private val pixelateSlider = new Slider {
     paintTicks = true
     paintLabels = true
     snapToTicks = true
     minorTickSpacing = 1
     min = 3
-    value = min
+  }
+  private val scaleLogCoeff = 100
+  private val scaleSlider = new Slider {
+    paintTicks = true
+    paintLabels = true
+    minorTickSpacing = scaleLogCoeff / 5
+    min = -scaleLogCoeff * 2
+    max = scaleLogCoeff * 2
+    value = 0
+    labels = Map(
+      -scaleLogCoeff * 2                      -> new Label("x0.01"),
+      (-scaleLogCoeff * math.log10(20)).toInt -> new Label("x0.05"),
+      -scaleLogCoeff                          -> new Label("x0.1"),
+      (-scaleLogCoeff * math.log10(2)).toInt  -> new Label("x0.5"),
+      0                                       -> new Label("x1"),
+      (scaleLogCoeff * math.log10(2)).toInt   -> new Label("x2"),
+      scaleLogCoeff                           -> new Label("x10"),
+      (scaleLogCoeff * math.log10(20)).toInt  -> new Label("x20"),
+      scaleLogCoeff * 2                       -> new Label("x100")
+    )
   }
 
-  private val images = new Images(true)
+  private val imagesService = new ImagesService(true)
 
   private var loadedFileOption: Option[File] = None
-  private var isPortrait                     = true
+  private var isPortrait: Boolean            = true
 
   //
   // Initialization block
@@ -64,7 +82,7 @@ class MainFrame(
 
   // TODO: Clipboard
   // TODO: Drag-n-drop
-  // TODO: Zoom
+  // TODO: Mouse controls
 
   attempt {
     def UnfocusableButton(label: String) = new Button(label) { focusable = false }
@@ -100,11 +118,17 @@ class MainFrame(
       layout(topPanel) = North
       val centerPanel = new BorderPanel {
         layout(Component.wrap(viewer.getComponent)) = Center
-        val pixelatePanel = new BorderPanel {
-          layout(new Label("Pixelation step:")) = West
-          layout(pixelateSlider) = Center
+        val configPanel = new BoxPanel(Orientation.Vertical) {
+          contents += new BorderPanel {
+            layout(new Label("Pixelation step:")) = West
+            layout(pixelateSlider) = Center
+          }
+          contents += new BorderPanel {
+            layout(new Label("Scale:")) = West
+            layout(scaleSlider) = Center
+          }
         }
-        layout(pixelatePanel) = South
+        layout(configPanel) = South
       }
       layout(centerPanel) = Center
       val bottomPanel = new BorderPanel {
@@ -127,7 +151,8 @@ class MainFrame(
     listenTo(
       browseLoadButton,
       browseSaveButton,
-      pixelateSlider
+      pixelateSlider,
+      scaleSlider
 //      subtitlesList.mouse.clicks
     )
     // Button reactions
@@ -135,6 +160,7 @@ class MainFrame(
       case ButtonClicked(`browseLoadButton`) => attempt(browseLoad())
       case ButtonClicked(`browseSaveButton`) => attempt(browseSave())
       case ValueChanged(`pixelateSlider`)    => attempt(pixelateSliderChanged())
+      case ValueChanged(`scaleSlider`)       => attempt(scaleSliderChanged())
     }
 
     title = BuildInfo.fullPrettyName
@@ -174,12 +200,16 @@ class MainFrame(
 
   def load(file: File): Unit = {
     val img = ImageIO.read(file)
-    pixelateSlider.value = pixelateSlider.min
-    images.load(img)
+    pixelateSlider.value = 10
+    imagesService.load(img)
     RenderAsync.enqueue()
   }
 
   def pixelateSliderChanged(): Unit = {
+    RenderAsync.enqueue()
+  }
+
+  def scaleSliderChanged(): Unit = {
     RenderAsync.enqueue()
   }
 
@@ -229,15 +259,14 @@ class MainFrame(
   }
 
   object RenderAsync {
-    private var shouldRender: Boolean = false
+    private val shouldRender = new AtomicBoolean(false)
 
     val thread = new Thread(() => {
       while (!Thread.currentThread().isInterrupted) {
+        while (shouldRender.getAndSet(false)) {
+          render()
+        }
         RenderAsync.synchronized {
-          if (shouldRender) {
-            shouldRender = false
-            render()
-          }
           RenderAsync.wait()
         }
       }
@@ -245,18 +274,18 @@ class MainFrame(
     thread.setDaemon(true)
     thread.start()
 
-    def enqueue(): Unit = Future {
+    def enqueue(): Unit = {
+      shouldRender.set(true)
       RenderAsync.synchronized {
-        shouldRender = true
         RenderAsync.notifyAll()
       }
     }
 
     private def render(): Unit = {
-      images.pixelate(pixelateSlider.value)
-      val image = images.updated()
+      val scalingFactor = math.pow(10, scaleSlider.value.toDouble / scaleLogCoeff)
+      val image         = imagesService.updated(scalingFactor, pixelateSlider.value)
 
-      SwingUtilities.invokeLater(() => {
+      SwingUtilities.invokeAndWait(() => {
         viewer.setImage(image)
 
         val pixelateMax = (image.getWidth min image.getHeight) / 10

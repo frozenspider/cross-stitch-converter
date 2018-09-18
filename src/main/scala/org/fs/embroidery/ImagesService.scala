@@ -4,9 +4,10 @@ import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Graphics2D
 import java.awt.geom.AffineTransform
+import java.awt.image.AffineTransformOp
 import java.awt.image.BufferedImage
 
-class Images(isPortrait: => Boolean) {
+class ImagesService(isPortrait: => Boolean) {
 
   private val dpi: Int                     = 96
   private val a4SizeMm: (Int, Int)         = (210, 297)
@@ -47,56 +48,68 @@ class Images(isPortrait: => Boolean) {
     new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
 
   private var processedImage: BufferedImage =
-    new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
+    new BufferedImage(1, 1, loadedImage.getType)
 
   private var processedImageGraphics: Graphics2D =
     processedImage.createGraphics()
 
-  private var pixelationStep: Int = -1
-
-  def load(image: BufferedImage): Unit = {
+  def load(image: BufferedImage): Unit = this.synchronized {
     loadedImage = image
     processedImage = image
     processedImageGraphics = processedImage.createGraphics()
-    pixelationStep = -1
   }
 
-  def pixelate(step: Int): Unit = {
-    if (pixelationStep != step) {
-      pixelationStep = step
-      processedImage = Pixelator.pixelate(loadedImage, step)
-      processedImageGraphics = processedImage.createGraphics()
-      paintGrid()
+  /** Re-render canvas and get updated image */
+  def updated(scalingFactor: Double, pixelationStep: Int): BufferedImage = this.synchronized {
+    val a4 = a4Image
+    if (a4.getWidth != canvasImage.getWidth) {
+      canvasImage = new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.getType)
+      canvasImageGraphics = canvasImage.createGraphics()
     }
+    processedImage = loadedImage
+    processedImageGraphics = processedImage.createGraphics()
+    scaleImage(scalingFactor)
+    pixelateImage(pixelationStep)
+    paintGrid(pixelationStep)
+    canvasImageGraphics.drawImage(a4, 0, 0, null)
+    canvasImageGraphics.drawImage(processedImage, 0, 0, null)
+    canvasImage
   }
 
-  private def paintGrid(): Unit = {
-    if (pixelationStep > 1) {
-      processedImageGraphics.setColor(Color.BLACK)
-      for {
-        x <- 0 until processedImage.getWidth by (pixelationStep)
-        y <- 0 until processedImage.getHeight
-      } inverseColor(x, y)
-      for {
-        x <- 0 until processedImage.getWidth if (x % pixelationStep != 0)
-        y <- 0 until processedImage.getHeight by (pixelationStep)
-      } inverseColor(x, y)
+  private def scaleImage(scalingFactor: Double): Unit = {
+    this.processedImage = {
+      val resultingImage = new BufferedImage(
+        (processedImage.getWidth * scalingFactor).toInt min canvasImage.getWidth,
+        (processedImage.getHeight * scalingFactor).toInt min canvasImage.getHeight,
+        processedImage.getType
+      )
+      val atOp = new AffineTransformOp(new AffineTransform {
+        scale(scalingFactor, scalingFactor)
+      }, AffineTransformOp.TYPE_BILINEAR)
+      atOp.filter(processedImage, resultingImage)
+      resultingImage
     }
+    this.processedImageGraphics = processedImage.createGraphics()
+  }
+
+  private def pixelateImage(pixelationStep: Int): Unit = {
+    this.processedImage = Pixelator.pixelate(processedImage, pixelationStep)
+    this.processedImageGraphics = processedImage.createGraphics()
+  }
+
+  private def paintGrid(pixelationStep: Int): Unit = {
+    processedImageGraphics.setColor(Color.BLACK)
+    for {
+      x <- 0 until processedImage.getWidth by (pixelationStep)
+      y <- 0 until processedImage.getHeight
+    } inverseColor(x, y)
+    for {
+      x <- 0 until processedImage.getWidth if (x % pixelationStep != 0)
+      y <- 0 until processedImage.getHeight by (pixelationStep)
+    } inverseColor(x, y)
   }
 
   private def inverseColor(x: Int, y: Int): Unit = {
     processedImage.setRGB(x, y, 0xFFFFFFFF - processedImage.getRGB(x, y) + 0xFF000000)
-  }
-
-  /** Re-render canvas and get updated image */
-  def updated(): BufferedImage = {
-    val a4 = a4Image
-    if (a4.getWidth != canvasImage.getWidth) {
-      canvasImage = new BufferedImage(a4.getWidth, a4.getHeight, BufferedImage.TYPE_INT_ARGB)
-      canvasImageGraphics = canvasImage.createGraphics()
-    }
-    canvasImageGraphics.drawImage(a4, 0, 0, null)
-    canvasImageGraphics.drawImage(processedImage, 0, 0, null)
-    canvasImage
   }
 }
