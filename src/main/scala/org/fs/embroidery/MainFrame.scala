@@ -5,6 +5,7 @@ import java.awt.Color
 import java.awt.Font
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseListener
 import java.awt.geom.AffineTransform
@@ -27,6 +28,9 @@ import com.typesafe.config.Config
 import com.typesafe.config.ConfigValue
 import com.typesafe.config.ConfigValueFactory
 import hu.kazocsaba.imageviewer.DefaultStatusBar
+import hu.kazocsaba.imageviewer.ImageMouseClickListener
+import hu.kazocsaba.imageviewer.ImageMouseEvent
+import hu.kazocsaba.imageviewer.ImageMouseMotionListener
 import hu.kazocsaba.imageviewer.ImageViewer
 import hu.kazocsaba.imageviewer.ResizeStrategy
 import javax.imageio.IIOImage
@@ -69,7 +73,7 @@ class MainFrame(
     import Scaling._
     paintTicks = true
     paintLabels = true
-    minorTickSpacing = LogCoeff / 5
+    minorTickSpacing = LogCoeff
     min = -LogCoeff * 2
     max = LogCoeff * 2
     value = 0
@@ -109,32 +113,56 @@ class MainFrame(
     val viewerImageComponent = viewerScrollPane.getViewport.getView
       .asInstanceOf[JLayeredPane]
       .getComponent(0)
-    viewerImageComponent.addMouseWheelListener(e => {
-      if ((e.getModifiersEx & InputEvent.CTRL_DOWN_MASK) != 0) {
-        val notches = e.getWheelRotation
-        if (viewer.getResizeStrategy != ResizeStrategy.CUSTOM_ZOOM) {
-          val transform = viewer.getImageTransform
-          viewer.setResizeStrategy(ResizeStrategy.CUSTOM_ZOOM)
-          viewer.setZoomFactor(transform.getScaleX)
-        }
-        val newZoomFactor = if (notches < 0) {
-          viewer.getZoomFactor * zoomCoeff * (-notches)
-        } else {
-          viewer.getZoomFactor / zoomCoeff / notches
-        }
-        viewer.setZoomFactor(newZoomFactor)
-        e.consume()
-      } else {
-        e.getComponent.getParent.requestFocus()
-        e.getComponent.getParent.dispatchEvent(e)
+      .asInstanceOf[JComponent]
+
+    // Drag-scroll
+    val (mouseListener, mouseMotionListener) = {
+      var refPointOption: Option[Point] = None
+      val mouseListener = new MouseAdapter {
+        override def mousePressed(e: MouseEvent): Unit  = refPointOption = Some(e.getPoint)
+        override def mouseReleased(e: MouseEvent): Unit = refPointOption = None
       }
+      val mouseMotionListener = new ImageMouseMotionListener {
+        override def mouseMoved(e: ImageMouseEvent): Unit   = {}
+        override def mouseEntered(e: ImageMouseEvent): Unit = {}
+        override def mouseExited(e: ImageMouseEvent): Unit  = refPointOption = None
+        override def mouseDragged(e: ImageMouseEvent): Unit = refPointOption foreach { refPoint =>
+          val deltaX = refPoint.x - e.getOriginalEvent.getX
+          val deltaY = refPoint.y - e.getOriginalEvent.getY
+          val view   = viewerScrollPane.getViewport.getViewRect
+          view.x += deltaX
+          view.y += deltaY
+          viewerImageComponent.scrollRectToVisible(view)
+        }
+      }
+      (mouseListener, mouseMotionListener)
+    }
+    viewer.addMouseListener(mouseListener)
+    viewer.addImageMouseMotionListener(mouseMotionListener)
+    // Wheel zoom
+    viewerImageComponent.addMouseWheelListener(e => {
+      val notches = e.getWheelRotation
+      if (viewer.getResizeStrategy != ResizeStrategy.CUSTOM_ZOOM) {
+        val transform = viewer.getImageTransform
+        viewer.setResizeStrategy(ResizeStrategy.CUSTOM_ZOOM)
+        viewer.setZoomFactor(transform.getScaleX)
+      }
+      val newZoomFactor = if (notches < 0) {
+        viewer.getZoomFactor * zoomCoeff * (-notches)
+      } else {
+        viewer.getZoomFactor / zoomCoeff / notches
+      }
+      viewer.setZoomFactor(newZoomFactor)
+      e.consume()
     })
+
     viewer.setStatusBar(new DefaultStatusBar {
       override def updateLabel(image: BufferedImage, x: Int, y: Int, availableWidth: Int): Unit = {
         super.updateLabel(image, x, y, availableWidth)
         label.setText(label.getText + ", zoom " + viewer.getZoomFactor)
       }
     })
+
     contents = new BorderPanel {
       def addHotkey(key: String, event: Int, mod: Int, f: => Unit): Unit = {
         peer
