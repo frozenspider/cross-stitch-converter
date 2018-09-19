@@ -57,10 +57,12 @@ class MainFrame(
 ) extends Frame
     with Logging {
 
-  private def defaultBorder = BorderFactory.createLineBorder(Color.gray, 1)
-  private val viewer        = new ImageViewer(null, false)
-  private val loadButton    = UnfocusableButton("Load")
-  private val saveButton    = UnfocusableButton("Save")
+  private def defaultBorder     = BorderFactory.createLineBorder(Color.gray, 1)
+  private val viewer            = new ImageViewer(null, false)
+  private val loadButton        = UnfocusableButton("Load")
+  private val saveButton        = UnfocusableButton("Save")
+  private val portraitCheckbox  = new CheckBox("Portrait") { selected = true }
+  private val colorCodeCheckbox = new CheckBox("Color-code") { selected = false }
 
   private val pixelateSlider = new Slider {
     paintTicks = true
@@ -90,7 +92,7 @@ class MainFrame(
     )
   }
 
-  private val imagesService = new ImagesService(true)
+  private val imagesService = new ImagesService(portraitCheckbox.selected)
 
   private var loadedFileOption: Option[File] = None
   private var isPortrait: Boolean            = true
@@ -167,6 +169,10 @@ class MainFrame(
       val centerPanel = new BorderPanel {
         layout(Component.wrap(viewer.getComponent)) = Center
         val configPanel = new BoxPanel(Orientation.Vertical) {
+          contents += new FlowPanel(
+            portraitCheckbox,
+            colorCodeCheckbox
+          )
           contents += new BorderPanel {
             layout(new Label("Pixelation step:")) = West
             layout(pixelateSlider) = Center
@@ -197,15 +203,19 @@ class MainFrame(
       loadButton,
       saveButton,
       pixelateSlider,
-      scaleSlider
-//      subtitlesList.mouse.clicks
+      scaleSlider,
+      portraitCheckbox,
+      colorCodeCheckbox
     )
     // Button reactions
     reactions += {
-      case ButtonClicked(`loadButton`)    => attempt(loadClicked())
-      case ButtonClicked(`saveButton`)    => attempt(saveClicked())
-      case ValueChanged(`pixelateSlider`) => attempt(pixelateSliderChanged())
-      case ValueChanged(`scaleSlider`)    => attempt(scaleSliderChanged())
+      case ButtonClicked(`loadButton`)        => attempt(loadClicked())
+      case ButtonClicked(`loadButton`)        => attempt(loadClicked())
+      case ButtonClicked(`saveButton`)        => attempt(saveClicked())
+      case ButtonClicked(`portraitCheckbox`)  => attempt(scheduleRender())
+      case ButtonClicked(`colorCodeCheckbox`) => attempt(scheduleRender())
+      case ValueChanged(`pixelateSlider`)     => attempt(scheduleRender())
+      case ValueChanged(`scaleSlider`)        => attempt(scheduleRender())
     }
 
     title = BuildInfo.fullPrettyName
@@ -213,7 +223,7 @@ class MainFrame(
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
-//    load(new File("_build/img.png"))
+    load(new File("_build/img.png"))
     RenderAsync.enqueue()
   }
 
@@ -327,11 +337,7 @@ class MainFrame(
     metadata.mergeTree("javax_imageio_1.0", root)
   }
 
-  def pixelateSliderChanged(): Unit = {
-    RenderAsync.enqueue()
-  }
-
-  def scaleSliderChanged(): Unit = {
+  def scheduleRender(): Unit = {
     RenderAsync.enqueue()
   }
 
@@ -423,7 +429,7 @@ class MainFrame(
 
     private def render(): Unit = {
       val scalingFactor = Scaling.linearToLog(scaleSlider.value)
-      val image         = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value)
+      val image         = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, colorCodeCheckbox.selected)
 
       SwingUtilities.invokeAndWait(() => {
         viewer.setImage(image)

@@ -61,7 +61,7 @@ class ImagesService(isPortrait: => Boolean) {
   }
 
   /** Re-render canvas and get updated image */
-  def updatedCanvas(scalingFactor: Double, pixelationStep: Int): BufferedImage = this.synchronized {
+  def updatedCanvas(scalingFactor: Double, pixelationStep: Int, colorCode: Boolean): BufferedImage = this.synchronized {
     val a4 = a4Image
     if (a4.getWidth != canvasImage.getWidth) {
       canvasImage = new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.getType)
