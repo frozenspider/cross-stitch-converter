@@ -57,12 +57,13 @@ class MainFrame(
 ) extends Frame
     with Logging {
 
-  private def defaultBorder     = BorderFactory.createLineBorder(Color.gray, 1)
-  private val viewer            = new ImageViewer(null, false)
-  private val loadButton        = UnfocusableButton("Load")
-  private val saveButton        = UnfocusableButton("Save")
-  private val portraitCheckbox  = new CheckBox("Portrait") { selected = true }
-  private val colorCodeCheckbox = new CheckBox("Color-code") { selected = false }
+  private def defaultBorder        = BorderFactory.createLineBorder(Color.gray, 1)
+  private val viewer               = new ImageViewer(null, false)
+  private val loadButton           = UnfocusableButton("Load")
+  private val saveButton           = UnfocusableButton("Save")
+  private val portraitRadioButton  = new RadioButton("Portrait") { selected = true }
+  private val landscapeRadioButton = new RadioButton("Landscape") { selected = false }
+  private val colorCodeCheckbox    = new CheckBox("Color-code") { selected = false }
 
   private val pixelateSlider = new Slider {
     paintTicks = true
@@ -92,10 +93,7 @@ class MainFrame(
     )
   }
 
-  private val imagesService = new ImagesService(portraitCheckbox.selected)
-
-  private var loadedFileOption: Option[File] = None
-  private var isPortrait: Boolean            = true
+  private val imagesService = new ImagesService(portraitRadioButton.selected)
 
   //
   // Initialization block
@@ -142,9 +140,13 @@ class MainFrame(
     viewer.setStatusBar(new DefaultStatusBar {
       override def updateLabel(image: BufferedImage, x: Int, y: Int, availableWidth: Int): Unit = {
         super.updateLabel(image, x, y, availableWidth)
-        label.setText(label.getText + ", zoom " + viewer.getZoomFactor)
+        val newText = label.getText +
+          ", zoom " + viewer.getZoomFactor +
+          ", color " + ColorCoder.classifyColor(image.getRGB(x, y))
+        label.setText(newText)
       }
     })
+    viewer.setStatusBarVisible(true)
 
     contents = new BorderPanel {
       def addHotkey(key: String, event: Int, mod: Int, f: => Unit): Unit = {
@@ -169,8 +171,12 @@ class MainFrame(
       val centerPanel = new BorderPanel {
         layout(Component.wrap(viewer.getComponent)) = Center
         val configPanel = new BoxPanel(Orientation.Vertical) {
+          new ButtonGroup(portraitRadioButton, landscapeRadioButton)
           contents += new FlowPanel(
-            portraitCheckbox,
+            new BoxPanel(Orientation.Vertical) {
+              contents += portraitRadioButton
+              contents += landscapeRadioButton
+            },
             colorCodeCheckbox
           )
           contents += new BorderPanel {
@@ -204,18 +210,20 @@ class MainFrame(
       saveButton,
       pixelateSlider,
       scaleSlider,
-      portraitCheckbox,
+      portraitRadioButton,
+      landscapeRadioButton,
       colorCodeCheckbox
     )
     // Button reactions
     reactions += {
-      case ButtonClicked(`loadButton`)        => attempt(loadClicked())
-      case ButtonClicked(`loadButton`)        => attempt(loadClicked())
-      case ButtonClicked(`saveButton`)        => attempt(saveClicked())
-      case ButtonClicked(`portraitCheckbox`)  => attempt(scheduleRender())
-      case ButtonClicked(`colorCodeCheckbox`) => attempt(scheduleRender())
-      case ValueChanged(`pixelateSlider`)     => attempt(scheduleRender())
-      case ValueChanged(`scaleSlider`)        => attempt(scheduleRender())
+      case ButtonClicked(`loadButton`)           => attempt(loadClicked())
+      case ButtonClicked(`loadButton`)           => attempt(loadClicked())
+      case ButtonClicked(`saveButton`)           => attempt(saveClicked())
+      case ButtonClicked(`portraitRadioButton`)  => attempt(scheduleRender())
+      case ButtonClicked(`landscapeRadioButton`) => attempt(scheduleRender())
+      case ButtonClicked(`colorCodeCheckbox`)    => attempt(scheduleRender())
+      case ValueChanged(`pixelateSlider`)        => attempt(scheduleRender())
+      case ValueChanged(`scaleSlider`)           => attempt(scheduleRender())
     }
 
     title = BuildInfo.fullPrettyName
