@@ -58,7 +58,7 @@ class MainFrame(
     with Logging {
 
   private def defaultBorder = BorderFactory.createLineBorder(Color.gray, 1)
-  private val viewer        = new ImageViewer()
+  private val viewer        = new ImageViewer(null, false)
   private val loadButton    = UnfocusableButton("Load")
   private val saveButton    = UnfocusableButton("Save")
 
@@ -116,29 +116,10 @@ class MainFrame(
       .asInstanceOf[JComponent]
 
     // Drag-scroll
-    val (mouseListener, mouseMotionListener) = {
-      var refPointOption: Option[Point] = None
-      val mouseListener = new MouseAdapter {
-        override def mousePressed(e: MouseEvent): Unit  = refPointOption = Some(e.getPoint)
-        override def mouseReleased(e: MouseEvent): Unit = refPointOption = None
-      }
-      val mouseMotionListener = new ImageMouseMotionListener {
-        override def mouseMoved(e: ImageMouseEvent): Unit   = {}
-        override def mouseEntered(e: ImageMouseEvent): Unit = {}
-        override def mouseExited(e: ImageMouseEvent): Unit  = refPointOption = None
-        override def mouseDragged(e: ImageMouseEvent): Unit = refPointOption foreach { refPoint =>
-          val deltaX = refPoint.x - e.getOriginalEvent.getX
-          val deltaY = refPoint.y - e.getOriginalEvent.getY
-          val view   = viewerScrollPane.getViewport.getViewRect
-          view.x += deltaX
-          view.y += deltaY
-          viewerImageComponent.scrollRectToVisible(view)
-        }
-      }
-      (mouseListener, mouseMotionListener)
-    }
-    viewer.addMouseListener(mouseListener)
-    viewer.addImageMouseMotionListener(mouseMotionListener)
+    val dragSupport = new MouseDragSupport(viewerScrollPane.getViewport, viewerImageComponent)
+    viewer.addMouseListener(dragSupport.mouseListener)
+    viewer.addImageMouseMotionListener(dragSupport.imageMouseMotionListener)
+
     // Wheel zoom
     viewerImageComponent.addMouseWheelListener(e => {
       val notches = e.getWheelRotation
