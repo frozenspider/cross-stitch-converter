@@ -13,11 +13,13 @@ class ImagesService(isPortrait: => Boolean) {
   private val a4SizeMm: (Int, Int)         = (210, 297)
   private val a4SizeInch: (Double, Double) = (8.27d, 11.69d)
 
+  private val defaultImageType = BufferedImage.TYPE_4BYTE_ABGR
+
   private val (a4PortraitImage, a4LandscapeImage): (BufferedImage, BufferedImage) = {
     val w    = (a4SizeInch._1 * dpi).toInt
     val h    = (a4SizeInch._2 * dpi).toInt
-    val imgP = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
-    val imgL = new BufferedImage(h, w, BufferedImage.TYPE_INT_RGB)
+    val imgP = new BufferedImage(w, h, defaultImageType)
+    val imgL = new BufferedImage(h, w, defaultImageType)
 
     val gr = imgP.createGraphics()
     gr.setPaint(Color.WHITE)
@@ -36,13 +38,13 @@ class ImagesService(isPortrait: => Boolean) {
     if (isPortrait) a4PortraitImage else a4LandscapeImage
 
   private var canvasImage: BufferedImage =
-    new BufferedImage(a4Image.getWidth, a4Image.getHeight, BufferedImage.TYPE_INT_ARGB)
+    new BufferedImage(a4Image.getWidth, a4Image.getHeight, defaultImageType)
 
   private var canvasImageGraphics: Graphics2D =
     canvasImage.createGraphics()
 
   private var loadedImage: BufferedImage =
-    new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
+    new BufferedImage(1, 1, defaultImageType)
 
   private var processedImage: BufferedImage =
     new BufferedImage(1, 1, loadedImage.getType)
@@ -103,14 +105,24 @@ class ImagesService(isPortrait: => Boolean) {
     for {
       x <- 0 until processedImage.getWidth by (pixelationStep)
       y <- 0 until processedImage.getHeight
-    } inverseColor(x, y)
+    } applyContrastColor(x, y)
     for {
       x <- 0 until processedImage.getWidth if (x % pixelationStep != 0)
       y <- 0 until processedImage.getHeight by (pixelationStep)
-    } inverseColor(x, y)
+    } applyContrastColor(x, y)
   }
 
-  private def inverseColor(x: Int, y: Int): Unit = {
-    processedImage.setRGB(x, y, 0xFFFFFFFF - processedImage.getRGB(x, y) + 0xFF000000)
+  private def applyContrastColor(x: Int, y: Int): Unit = {
+    val rgb = processedImage.getRGB(x, y)
+    if (!isGrey(rgb)) {
+      processedImage.setRGB(x, y, 0xFFFFFFFF - rgb + 0xFF000000)
+    } else {
+      processedImage.setRGB(x, y, 0xFF000000)
+    }
+  }
+
+  private def isGrey(rgb: Int): Boolean = {
+    val hsb = ColorCoder.getHsb(rgb)
+    hsb.saturation < 0.2 && (hsb.brightness > 0.3 && hsb.brightness < 0.7)
   }
 }

@@ -58,6 +58,8 @@ class MainFrame(
 ) extends Frame
     with Logging {
 
+  private val initComplete = new AtomicBoolean(false)
+
   private def defaultBorder        = BorderFactory.createLineBorder(Color.gray, 1)
   private val viewer               = new ImageViewer(null, false)
   private val loadButton           = UnfocusableButton("Load")
@@ -244,7 +246,7 @@ class MainFrame(
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
     load(new File("_build/img.png"))
-    RenderAsync.enqueue()
+    initComplete.set(true)
   }
 
   private def createFileChooser(lastAccessedPath: String, extFilter: (String, Seq[String])): FileChooser = {
@@ -421,11 +423,11 @@ class MainFrame(
   }
 
   object RenderAsync {
-    private val shouldRender = new AtomicBoolean(false)
+    private val shouldRender = new AtomicBoolean(true)
 
     val thread = new Thread(() => {
       while (!Thread.currentThread().isInterrupted) {
-        while (shouldRender.getAndSet(false)) {
+        while (initComplete.get && shouldRender.getAndSet(false)) {
           try {
             render()
           } catch {
@@ -449,12 +451,13 @@ class MainFrame(
 
     private def render(): Unit = {
       val scalingFactor = Scaling.linearToLog(scaleSlider.value)
-      val image         = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, colorCodeCheckbox.selected)
+      val canvasImage   = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, colorCodeCheckbox.selected)
+      val innerImage    = imagesService.previousUpdatedImage
 
       SwingUtilities.invokeAndWait(() => {
-        viewer.setImage(image)
+        viewer.setImage(canvasImage)
 
-        val pixelateMax = (image.getWidth min image.getHeight) / 10
+        val pixelateMax = (innerImage.getWidth min innerImage.getHeight) / 10
         pixelateSlider.max = pixelateMax
         pixelateSlider.majorTickSpacing = pixelateMax / 3
         pixelateSlider.labels = {
