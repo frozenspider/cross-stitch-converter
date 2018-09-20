@@ -2,17 +2,21 @@ package org.fs.embroidery
 
 import java.awt.Color
 import java.awt.image.BufferedImage
+import java.nio.ByteBuffer
 
 import scala.collection.mutable
 
 // Taken from https://stackoverflow.com/a/42327288/466646
 object Pixelator {
 
+  private type RGB   = Int
+  private type Count = Int
+
   def pixelate(image: BufferedImage, pixelSize: Int): BufferedImage = {
     val pixelateImage = new BufferedImage(image.getWidth, image.getHeight, image.getType)
     for {
-      x <- 0 until image.getWidth by pixelSize
-      y <- 0 until image.getHeight by pixelSize
+      x <- (0 until image.getWidth by pixelSize).par
+      y <- (0 until image.getHeight by pixelSize).par
     } {
       val croppedImage  = getCroppedSubImage(image, x, y, pixelSize, pixelSize)
       val dominantColor = getDominantColor(croppedImage)
@@ -43,13 +47,30 @@ object Pixelator {
     if (v < range.start) range.start else if (v > range.end) range.end else v
 
   private def getDominantColor(image: BufferedImage): Color = {
-    val colorCounter = mutable.Map.empty[Int, Int]
+    val colorCounter = mutable.Map.empty[RGB, Count]
     for (x <- 0 until image.getWidth) {
       for (y <- 0 until image.getHeight) {
         val currentRGB = image.getRGB(x, y)
         colorCounter.put(currentRGB, colorCounter.getOrElse(currentRGB, 0) + 1)
       }
     }
-    new Color(colorCounter.maxBy(_._2)._1)
+    val maxCount       = colorCounter.values.max
+    val dominantColors = colorCounter.filter(_._2 == maxCount).keys.toList
+    new Color(chooseStrongestColor(dominantColors))
   }
+
+  private def chooseStrongestColor(colors: List[RGB]): RGB = colors match {
+    case rgb :: Nil => rgb
+    case rgbs       => rgbs maxBy rgbToComparable
+  }
+
+  private def rgbToComparable(rgb: RGB): Int = {
+    val bytes               = ByteBuffer.allocate(4).putInt(rgb).array()
+    val (alpha, components) = (ubyte2int(bytes.head), bytes.tail)
+    val componentsSum       = components.map(ubyte2int).sum
+    alpha * componentsSum
+  }
+
+  private def ubyte2int(b: Byte) =
+    java.lang.Byte.toUnsignedInt(b)
 }
