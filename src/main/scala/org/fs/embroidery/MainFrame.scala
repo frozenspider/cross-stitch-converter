@@ -32,6 +32,7 @@ import hu.kazocsaba.imageviewer.ImageMouseClickListener
 import hu.kazocsaba.imageviewer.ImageMouseEvent
 import hu.kazocsaba.imageviewer.ImageMouseMotionListener
 import hu.kazocsaba.imageviewer.ImageViewer
+import hu.kazocsaba.imageviewer.Overlay
 import hu.kazocsaba.imageviewer.ResizeStrategy
 import javax.imageio.IIOImage
 import javax.imageio.ImageIO
@@ -147,6 +148,17 @@ class MainFrame(
       }
     })
     viewer.setStatusBarVisible(true)
+
+    viewer.addOverlay((g: Graphics2D, image: BufferedImage, transform: AffineTransform) => {
+      g.setColor(Color.DARK_GRAY)
+      val (w, h) = (image.getWidth - 1, image.getHeight - 1)
+      val bounds = Array[Double](0, 0, w, 0, w, h, 0, h)
+      transform.transform(bounds, 0, bounds, 0, 4)
+      val coordPairs = bounds.map(_.toInt).grouped(2).toSeq
+      (coordPairs :+ coordPairs.head).sliding(2) foreach {
+        case Seq(Array(x0, y0), Array(x1, y1)) => g.drawLine(x0, y0, x1, y1)
+      }
+    })
 
     contents = new BorderPanel {
       def addHotkey(key: String, event: Int, mod: Int, f: => Unit): Unit = {

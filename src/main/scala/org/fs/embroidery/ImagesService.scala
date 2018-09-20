@@ -1,6 +1,5 @@
 package org.fs.embroidery
 
-import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Graphics2D
 import java.awt.geom.AffineTransform
@@ -23,9 +22,6 @@ class ImagesService(isPortrait: => Boolean) {
     val gr = imgP.createGraphics()
     gr.setPaint(Color.WHITE)
     gr.fillRect(0, 0, imgP.getWidth, imgP.getHeight)
-    gr.setStroke(new BasicStroke(3))
-    gr.setPaint(Color.DARK_GRAY)
-    gr.drawRect(1, 1, imgP.getWidth - 3, imgP.getHeight - 3)
 
     val at = new AffineTransform() {
       quadrantRotate(1)
