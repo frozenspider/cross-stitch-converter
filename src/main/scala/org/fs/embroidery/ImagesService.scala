@@ -37,87 +37,75 @@ class ImagesService(isPortrait: => Boolean) {
   private def a4Image: BufferedImage =
     if (isPortrait) a4PortraitImage else a4LandscapeImage
 
-  private var canvasImage: BufferedImage =
-    new BufferedImage(a4Image.getWidth, a4Image.getHeight, defaultImageType)
+  private var canvasImage: InternalImage =
+    InternalImage(new BufferedImage(a4Image.getWidth, a4Image.getHeight, defaultImageType))
 
-  private var canvasImageGraphics: Graphics2D =
-    canvasImage.createGraphics()
+  private var loadedImage: InternalImage =
+    InternalImage(new BufferedImage(1, 1, defaultImageType))
 
-  private var loadedImage: BufferedImage =
-    new BufferedImage(1, 1, defaultImageType)
-
-  private var processedImage: BufferedImage =
-    new BufferedImage(1, 1, loadedImage.getType)
-
-  private var processedImageGraphics: Graphics2D =
-    processedImage.createGraphics()
+  private var processedImage: InternalImage =
+    InternalImage(new BufferedImage(1, 1, loadedImage.typeInt))
 
   def load(image: BufferedImage): Unit = this.synchronized {
-    loadedImage = image
-    processedImage = image
-    processedImageGraphics = processedImage.createGraphics()
+    loadedImage = InternalImage(image)
+    processedImage = loadedImage
   }
 
   /** Re-render canvas and get updated image */
   def updatedCanvas(scalingFactor: Double, pixelationStep: Int, colorCode: Boolean): BufferedImage = this.synchronized {
     val a4 = a4Image
-    if (a4.getWidth != canvasImage.getWidth) {
-      canvasImage = new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.getType)
-      canvasImageGraphics = canvasImage.createGraphics()
-    }
+    canvasImage = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
     processedImage = loadedImage
-    processedImageGraphics = processedImage.createGraphics()
-    scaleImage(scalingFactor)
-    pixelateImage(pixelationStep)
-    paintGrid(pixelationStep)
-    canvasImageGraphics.drawImage(a4, 0, 0, null)
-    canvasImageGraphics.drawImage(processedImage, 0, 0, null)
-    canvasImage
+    processedImage = scaleImage(processedImage, canvasImage, scalingFactor)
+    processedImage = pixelateImage(processedImage, pixelationStep)
+    processedImage = paintGrid(processedImage, pixelationStep)
+    canvasImage.graphics.drawImage(a4, 0, 0, null)
+    canvasImage.graphics.drawImage(processedImage.inner, 0, 0, null)
+    canvasImage.inner
   }
 
-  def previousUpdatedCanvas: BufferedImage = canvasImage
+  def previousUpdatedCanvas: BufferedImage = canvasImage.inner
 
-  def previousUpdatedImage: BufferedImage = processedImage
+  def previousUpdatedImage: BufferedImage = processedImage.inner
 
-  private def scaleImage(scalingFactor: Double): Unit = {
-    this.processedImage = {
-      val resultingImage = new BufferedImage(
-        (processedImage.getWidth * scalingFactor).toInt min canvasImage.getWidth max 1,
-        (processedImage.getHeight * scalingFactor).toInt min canvasImage.getHeight max 1,
-        processedImage.getType
-      )
-      val atOp = new AffineTransformOp(new AffineTransform {
-        scale(scalingFactor, scalingFactor)
-      }, AffineTransformOp.TYPE_BILINEAR)
-      atOp.filter(processedImage, resultingImage)
-      resultingImage
-    }
-    this.processedImageGraphics = processedImage.createGraphics()
+  private def scaleImage(image: InternalImage, canvasImage: InternalImage, scalingFactor: Double): InternalImage = {
+    val resultingImageVal = new BufferedImage(
+      (image.w * scalingFactor).toInt min canvasImage.w max 1,
+      (image.h * scalingFactor).toInt min canvasImage.h max 1,
+      image.typeInt
+    )
+    val atOp = new AffineTransformOp(new AffineTransform {
+      scale(scalingFactor, scalingFactor)
+    }, AffineTransformOp.TYPE_BILINEAR)
+    atOp.filter(image.inner, resultingImageVal)
+    InternalImage(resultingImageVal)
   }
 
-  private def pixelateImage(pixelationStep: Int): Unit = {
-    this.processedImage = Pixelator.pixelate(processedImage, pixelationStep)
-    this.processedImageGraphics = processedImage.createGraphics()
+  private def pixelateImage(image: InternalImage, pixelationStep: Int): InternalImage = {
+    val inner = Pixelator.pixelate(image.inner, pixelationStep)
+    InternalImage(inner)
   }
 
-  private def paintGrid(pixelationStep: Int): Unit = {
-    processedImageGraphics.setColor(Color.BLACK)
+  private def paintGrid(image: InternalImage, pixelationStep: Int): InternalImage = {
+    val resImage = image.copy
+    resImage.graphics.setColor(Color.BLACK)
     for {
-      x <- 0 until processedImage.getWidth by (pixelationStep)
-      y <- 0 until processedImage.getHeight
-    } applyContrastColor(x, y)
+      x <- 0 until resImage.w by (pixelationStep)
+      y <- 0 until resImage.h
+    } applyContrastColor(resImage, x, y)
     for {
-      x <- 0 until processedImage.getWidth if (x % pixelationStep != 0)
-      y <- 0 until processedImage.getHeight by (pixelationStep)
-    } applyContrastColor(x, y)
+      x <- 0 until resImage.w if (x % pixelationStep != 0)
+      y <- 0 until resImage.h by (pixelationStep)
+    } applyContrastColor(resImage, x, y)
+    resImage
   }
 
-  private def applyContrastColor(x: Int, y: Int): Unit = {
-    val rgb = processedImage.getRGB(x, y)
+  private def applyContrastColor(image: InternalImage, x: Int, y: Int): Unit = {
+    val rgb = image.inner.getRGB(x, y)
     if (!isGrey(rgb)) {
-      processedImage.setRGB(x, y, 0xFFFFFFFF - rgb + 0xFF000000)
+      image.inner.setRGB(x, y, 0xFFFFFFFF - rgb + 0xFF000000)
     } else {
-      processedImage.setRGB(x, y, 0xFF000000)
+      image.inner.setRGB(x, y, 0xFF000000)
     }
   }
 
