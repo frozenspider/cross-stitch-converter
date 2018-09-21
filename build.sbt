@@ -44,7 +44,6 @@ libraryDependencies ++= Seq(
   "commons-io"                %  "commons-io"               % "2.6",
   "com.github.nscala-time"    %% "nscala-time"              % "2.16.0",
   "com.typesafe"              %  "config"                   % "1.3.2",
-  "org.scala-lang.modules"    %% "scala-parser-combinators" % "1.1.1",
   // Test
   "junit"                     %  "junit"                    % "4.12"  % "test",
   "org.scalactic"             %% "scalactic"                % "3.0.4" % "test",

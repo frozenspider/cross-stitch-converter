@@ -12,12 +12,12 @@ object Pixelator {
   private type RGB   = Int
   private type Count = Int
 
-  def pixelate(image: BufferedImage, pixelSize: Int): BufferedImage = {
+  def pixelate(image: BufferedImage, pixelSize: Int): (BufferedImage, Map[(Int, Int), Color]) = {
     val pixelateImage = new BufferedImage(image.getWidth, image.getHeight, image.getType)
-    for {
+    val colorMapSeq = for {
       x <- (0 until image.getWidth by pixelSize).par
       y <- (0 until image.getHeight by pixelSize).par
-    } {
+    } yield {
       val croppedImage  = getCroppedSubImage(image, x, y, pixelSize, pixelSize)
       val dominantColor = getDominantColor(croppedImage)
 
@@ -25,8 +25,9 @@ object Pixelator {
         xd <- x until math.min(x + pixelSize, pixelateImage.getWidth)
         yd <- y until math.min(y + pixelSize, pixelateImage.getHeight)
       } pixelateImage.setRGB(xd, yd, dominantColor.getRGB)
+      ((x, y) -> dominantColor)
     }
-    pixelateImage
+    (pixelateImage, colorMapSeq.seq.toMap)
   }
 
   private def getCroppedSubImage(

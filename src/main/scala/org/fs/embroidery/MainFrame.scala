@@ -231,7 +231,6 @@ class MainFrame(
     // Button reactions
     reactions += {
       case ButtonClicked(`loadButton`)           => attempt(loadClicked())
-      case ButtonClicked(`loadButton`)           => attempt(loadClicked())
       case ButtonClicked(`saveButton`)           => attempt(saveClicked())
       case ButtonClicked(`portraitRadioButton`)  => attempt(scheduleRender())
       case ButtonClicked(`landscapeRadioButton`) => attempt(scheduleRender())

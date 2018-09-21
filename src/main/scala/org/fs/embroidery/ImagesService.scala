@@ -57,7 +57,9 @@ class ImagesService(isPortrait: => Boolean) {
     canvasImage = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
     processedImage = loadedImage
     processedImage = scaleImage(processedImage, canvasImage, scalingFactor)
-    processedImage = pixelateImage(processedImage, pixelationStep)
+    val (processedImage2, colorMap) = pixelateImage(processedImage, pixelationStep)
+    processedImage = processedImage2
+    processColorMap(colorMap)
     processedImage = paintGrid(processedImage, pixelationStep)
     canvasImage.graphics.drawImage(a4, 0, 0, null)
     canvasImage.graphics.drawImage(processedImage.inner, 0, 0, null)
@@ -67,6 +69,10 @@ class ImagesService(isPortrait: => Boolean) {
   def previousUpdatedCanvas: BufferedImage = canvasImage.inner
 
   def previousUpdatedImage: BufferedImage = processedImage.inner
+
+  //
+  // Processing methods
+  //
 
   private def scaleImage(image: InternalImage, canvasImage: InternalImage, scalingFactor: Double): InternalImage = {
     val resultingImageVal = new BufferedImage(
@@ -81,9 +87,9 @@ class ImagesService(isPortrait: => Boolean) {
     InternalImage(resultingImageVal)
   }
 
-  private def pixelateImage(image: InternalImage, pixelationStep: Int): InternalImage = {
-    val inner = Pixelator.pixelate(image.inner, pixelationStep)
-    InternalImage(inner)
+  private def pixelateImage(image: InternalImage, pixelationStep: Int): (InternalImage, Map[(Int, Int), Color]) = {
+    val (inner, colorMap) = Pixelator.pixelate(image.inner, pixelationStep)
+    (InternalImage(inner), colorMap)
   }
 
   private def paintGrid(image: InternalImage, pixelationStep: Int): InternalImage = {
@@ -112,5 +118,9 @@ class ImagesService(isPortrait: => Boolean) {
   private def isGrey(rgb: Int): Boolean = {
     val hsb = ColorCoder.getHsb(rgb)
     hsb.saturation < 0.2 && (hsb.brightness > 0.3 && hsb.brightness < 0.7)
+  }
+
+  private def processColorMap(colorMap: Map[(Int, Int), Color]) = {
+    println(colorMap.values.map(c => c.getRGB).mkString(", "))
   }
 }
