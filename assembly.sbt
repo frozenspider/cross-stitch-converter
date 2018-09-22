@@ -10,8 +10,8 @@ assemblyOutputPath in assembly := buildOutputPath / (assemblyJarName in assembly
 
 // Discard META-INF files to avoid assembly deduplication errors
 assemblyMergeStrategy in assembly := {
-  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-  case x                             => MergeStrategy.first
+  case PathList("META-INF", _ @_*) => MergeStrategy.discard
+  case _                           => MergeStrategy.first
 }
 
 
@@ -30,10 +30,15 @@ launch4j := {
     throw new Exception("Please install Launch4j (preferribly v3.11) locally and set LAUNCH4J_HOME env variable") with FeedbackProvidedException)
   val launch4jBasedir = new File(launch4jBasedirString)
 
+  val configurations = Seq(
+    ("x86", Jre.RUNTIME_BITS_32),
+    ("x64", Jre.RUNTIME_BITS_64)
+  )
+
   ConfigPersister.getInstance.createBlank()
   val conf: Config = ConfigPersister.getInstance.getConfig
   conf.setHeaderType("gui")
-  conf.setIcon(file("./src/main/resources/icons/main.ico"))
+  // conf.setIcon(file("./src/main/resources/icons/main.ico"))
   conf.setJar(new File((assemblyJarName in assembly).value))
   conf.setDontWrapJar(true)
   conf.setDownloadUrl("http://java.com/download")
@@ -46,6 +51,14 @@ launch4j := {
   jre.setMinVersion("1.8.0")
   jre.setJdkPreference(Jre.JDK_PREFERENCE_PREFER_JDK)
   conf.setJre(jre)
+
+  configurations.foreach {
+    case (arch, jreRuntimeBits) =>
+      conf.setOutfile(buildOutputPath / s"${name.value}_${arch}.exe")
+      jre.setRuntimeBits(jreRuntimeBits)
+      conf.validate()
+      new Builder(Log.getConsoleLog, launch4jBasedir).build()
+  }
 }
 
 
@@ -53,7 +66,7 @@ launch4j := {
 // buildDistr task
 //
 
-val buildDistr = taskKey[Unit](s"Complete build: assemble a runnable .jar, copy SWT libs, generate Windows executables and Linux shell script")
+val buildDistr = taskKey[Unit](s"Complete build: assemble a runnable .jar and generate Windows executables")
 
 buildDistr := {
   assembly.value
