@@ -77,7 +77,8 @@ class ImagesService(isPortrait: => Boolean) {
         val res = simplifyColors(processedImage, pixelationStep, colorMap.values.toIndexedSeq, n, colorCode)
         processedImage = res._1
         colorReferenceImageOption = res._2
-      case None => // NOOP
+      case None =>
+        colorReferenceImageOption = None
     }
     if (shouldPaintGrid) {
       processedImage = paintGrid(processedImage, pixelationStep)
