@@ -6,6 +6,9 @@ import java.awt.geom.AffineTransform
 import java.awt.image.AffineTransformOp
 import java.awt.image.BufferedImage
 
+import org.fs.embroidery.classify.ColorsSupport
+import org.fs.embroidery.classify.KMeans
+
 class ImagesService(isPortrait: => Boolean) {
 
   val dpi: Int = 150
@@ -52,14 +55,20 @@ class ImagesService(isPortrait: => Boolean) {
   }
 
   /** Re-render canvas and get updated image */
-  def updatedCanvas(scalingFactor: Double, pixelationStep: Int, colorCode: Boolean): BufferedImage = this.synchronized {
+  def updatedCanvas(
+      scalingFactor: Double,
+      pixelationStep: Int,
+      colorCodeColorsNumOption: Option[Int]
+  ): BufferedImage = this.synchronized {
     val a4 = a4Image
     canvasImage = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
     processedImage = loadedImage
     processedImage = scaleImage(processedImage, canvasImage, scalingFactor)
     val (processedImage2, colorMap) = pixelateImage(processedImage, pixelationStep)
     processedImage = processedImage2
-    processColorMap(colorMap)
+    colorCodeColorsNumOption foreach { colorCodeColorsNum =>
+      processedImage = colorCode(processedImage, pixelationStep, colorMap, colorCodeColorsNum)
+    }
     processedImage = paintGrid(processedImage, pixelationStep)
     canvasImage.graphics.drawImage(a4, 0, 0, null)
     canvasImage.graphics.drawImage(processedImage.inner, 0, 0, null)
@@ -120,7 +129,23 @@ class ImagesService(isPortrait: => Boolean) {
     hsb.saturation < 0.2 && (hsb.brightness > 0.3 && hsb.brightness < 0.7)
   }
 
-  private def processColorMap(colorMap: Map[(Int, Int), Color]) = {
-    println(colorMap.values.map(c => c.getRGB).mkString(", "))
+  private def colorCode(
+      image: InternalImage,
+      pixelationStep: Int,
+      colorMap: Map[(Int, Int), Color],
+      colorCodeColorsNum: Int
+  ): InternalImage = {
+    val means    = KMeans(colorCodeColorsNum, colorMap.values.toIndexedSeq)(ColorsSupport)
+    val resImage = image.copy
+    for {
+      x <- 0 until resImage.w by pixelationStep
+      y <- 0 until resImage.h by pixelationStep
+    } {
+      val sample = new Color(image.inner.getRGB(x, y))
+      val mean   = means.classifyAndGet(sample)
+      resImage.graphics.setColor(mean)
+      resImage.graphics.fillRect(x, y, pixelationStep, pixelationStep)
+    }
+    resImage
   }
 }

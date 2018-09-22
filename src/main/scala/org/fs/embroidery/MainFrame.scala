@@ -40,12 +40,15 @@ import javax.imageio.ImageTypeSpecifier
 import javax.imageio.ImageWriter
 import javax.imageio.metadata.IIOMetadata
 import javax.imageio.metadata.IIOMetadataNode
+import javax.swing.AbstractAction
 import org.slf4s.Logging
 import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JLayeredPane
 import javax.swing.JScrollPane
+import javax.swing.JSpinner
 import javax.swing.KeyStroke
+import javax.swing.SpinnerNumberModel
 import javax.swing.SwingUtilities
 import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -60,13 +63,13 @@ class MainFrame(
 
   private val initComplete = new AtomicBoolean(false)
 
-  private def defaultBorder        = BorderFactory.createLineBorder(Color.gray, 1)
   private val viewer               = new ImageViewer(null, false)
   private val loadButton           = UnfocusableButton("Load")
   private val saveButton           = UnfocusableButton("Save")
   private val portraitRadioButton  = new RadioButton("Portrait") { selected = true }
   private val landscapeRadioButton = new RadioButton("Landscape") { selected = false }
   private val colorCodeCheckbox    = new CheckBox("Color-code") { selected = false }
+  private val colorCodeSpinner     = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
 
   private val pixelateSlider = new Slider {
     paintTicks = true
@@ -167,9 +170,7 @@ class MainFrame(
         peer
           .getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
           .put(KeyStroke.getKeyStroke(event, mod), key)
-        peer.getActionMap.put(key, new javax.swing.AbstractAction {
-          def actionPerformed(arg: java.awt.event.ActionEvent): Unit = f
-        })
+        peer.getActionMap.put(key, (_ => f): AbstractAction)
       }
 
       import BorderPanel.Position._
@@ -191,7 +192,10 @@ class MainFrame(
               contents += portraitRadioButton
               contents += landscapeRadioButton
             },
-            colorCodeCheckbox
+            new BoxPanel(Orientation.Horizontal) {
+              contents += colorCodeCheckbox
+              contents += Component.wrap(colorCodeSpinner)
+            }
           )
           contents += new BorderPanel {
             layout(new Label("Pixelation step:")) = West
@@ -207,7 +211,7 @@ class MainFrame(
       layout(centerPanel) = Center
       val bottomPanel = new BorderPanel {}
       layout(bottomPanel) = South
-      addHotkey("save", KeyEvent.VK_S, InputEvent.CTRL_MASK, saveClicked())
+      addHotkey("save", KeyEvent.VK_S, InputEvent.CTRL_MASK, attempt(saveClicked()))
     }
     def styleComponents(): Unit = {
 //      pixelateSlider.margin = new Insets(0, 2, 0, 2)
@@ -234,15 +238,18 @@ class MainFrame(
       case ButtonClicked(`saveButton`)           => attempt(saveClicked())
       case ButtonClicked(`portraitRadioButton`)  => attempt(scheduleRender())
       case ButtonClicked(`landscapeRadioButton`) => attempt(scheduleRender())
-      case ButtonClicked(`colorCodeCheckbox`)    => attempt(scheduleRender())
+      case ButtonClicked(`colorCodeCheckbox`)    => attempt(colorCodeCheckboxClicked())
       case ValueChanged(`pixelateSlider`)        => attempt(scheduleRender())
       case ValueChanged(`scaleSlider`)           => attempt(scheduleRender())
     }
+    colorCodeSpinner.addChangeListener(x => attempt(scheduleRender()))
 
     title = BuildInfo.fullPrettyName
     size = new Dimension(1000, 700)
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
+
+    colorCodeSpinner.setEnabled(false)
 
     load(new File("_build/img.png"))
     initComplete.set(true)
@@ -358,7 +365,12 @@ class MainFrame(
     metadata.mergeTree("javax_imageio_1.0", root)
   }
 
-  def scheduleRender(): Unit = {
+  private def colorCodeCheckboxClicked(): Unit = {
+    colorCodeSpinner.setEnabled(colorCodeCheckbox.selected)
+    scheduleRender()
+  }
+
+  private def scheduleRender(): Unit = {
     RenderAsync.enqueue()
   }
 
@@ -450,8 +462,10 @@ class MainFrame(
 
     private def render(): Unit = {
       val scalingFactor = Scaling.linearToLog(scaleSlider.value)
-      val canvasImage   = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, colorCodeCheckbox.selected)
-      val innerImage    = imagesService.previousUpdatedImage
+      val colorCodeColorsNumOption =
+        if (colorCodeCheckbox.selected) Some(colorCodeSpinner.getValue.asInstanceOf[Int]) else None
+      val canvasImage = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, colorCodeColorsNumOption)
+      val innerImage  = imagesService.previousUpdatedImage
 
       SwingUtilities.invokeAndWait(() => {
         viewer.setImage(canvasImage)
