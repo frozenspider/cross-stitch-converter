@@ -1,7 +1,7 @@
 package org.fs.embroidery
 
 import java.awt.Color
-import java.awt.Graphics2D
+import java.awt.Font
 import java.awt.geom.AffineTransform
 import java.awt.image.AffineTransformOp
 import java.awt.image.BufferedImage
@@ -49,16 +49,20 @@ class ImagesService(isPortrait: => Boolean) {
   private var processedImage: InternalImage =
     InternalImage(new BufferedImage(1, 1, loadedImage.typeInt))
 
+  private var colorReferenceImageOption: Option[InternalImage] =
+    None
+
   def load(image: BufferedImage): Unit = this.synchronized {
     loadedImage = InternalImage(image)
     processedImage = loadedImage
+    colorReferenceImageOption = None
   }
 
   /** Re-render canvas and get updated image */
   def updatedCanvas(
       scalingFactor: Double,
       pixelationStep: Int,
-      colorCodeColorsNumOption: Option[Int]
+      simplifyColorsOption: Option[(Int, Boolean)]
   ): BufferedImage = this.synchronized {
     val a4 = a4Image
     canvasImage = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
@@ -66,10 +70,26 @@ class ImagesService(isPortrait: => Boolean) {
     processedImage = scaleImage(processedImage, canvasImage, scalingFactor)
     val (processedImage2, colorMap) = pixelateImage(processedImage, pixelationStep)
     processedImage = processedImage2
-    colorCodeColorsNumOption foreach { colorCodeColorsNum =>
-      processedImage = colorCode(processedImage, pixelationStep, colorMap, colorCodeColorsNum)
+    simplifyColorsOption match {
+      case Some((n, colorCode)) =>
+        val res = simplifyColors(processedImage, pixelationStep, colorMap.values.toIndexedSeq, n, colorCode)
+        processedImage = res._1
+        colorReferenceImageOption = res._2
+      case None => // NOOP
     }
     processedImage = paintGrid(processedImage, pixelationStep)
+    colorReferenceImageOption foreach (colorReferenceImage => {
+      val prevInnerImage = processedImage.inner
+      processedImage = InternalImage(
+        new BufferedImage(
+          processedImage.w,
+          processedImage.h + colorReferenceImage.h,
+          processedImage.typeInt
+        )
+      )
+      processedImage.graphics.drawImage(prevInnerImage, 0, 0, null)
+      processedImage.graphics.drawImage(colorReferenceImage.inner, 0, prevInnerImage.getHeight, null)
+    })
     canvasImage.graphics.drawImage(a4, 0, 0, null)
     canvasImage.graphics.drawImage(processedImage.inner, 0, 0, null)
     canvasImage.inner
@@ -102,25 +122,32 @@ class ImagesService(isPortrait: => Boolean) {
   }
 
   private def paintGrid(image: InternalImage, pixelationStep: Int): InternalImage = {
+    paintGridInner(image, pixelationStep, getContrastRgb)
+  }
+
+  private def paintGridInner(
+      image: InternalImage,
+      pixelationStep: Int,
+      transformRgb: Int => Int
+  ): InternalImage = {
     val resImage = image.copy
     resImage.graphics.setColor(Color.BLACK)
     for {
       x <- 0 until resImage.w by (pixelationStep)
       y <- 0 until resImage.h
-    } applyContrastColor(resImage, x, y)
+    } resImage.inner.setRGB(x, y, transformRgb(image.inner.getRGB(x, y)))
     for {
       x <- 0 until resImage.w if (x % pixelationStep != 0)
       y <- 0 until resImage.h by (pixelationStep)
-    } applyContrastColor(resImage, x, y)
+    } resImage.inner.setRGB(x, y, transformRgb(image.inner.getRGB(x, y)))
     resImage
   }
 
-  private def applyContrastColor(image: InternalImage, x: Int, y: Int): Unit = {
-    val rgb = image.inner.getRGB(x, y)
-    if (!isGrey(rgb)) {
-      image.inner.setRGB(x, y, 0xFFFFFFFF - rgb + 0xFF000000)
+  private def getContrastRgb(rgb: Int): Int = {
+    if (isGrey(rgb)) {
+      0xFF000000
     } else {
-      image.inner.setRGB(x, y, 0xFF000000)
+      0xFFFFFFFF - rgb + 0xFF000000
     }
   }
 
@@ -129,23 +156,56 @@ class ImagesService(isPortrait: => Boolean) {
     hsb.saturation < 0.2 && (hsb.brightness > 0.3 && hsb.brightness < 0.7)
   }
 
-  private def colorCode(
+  /** Coerce all colors in the image to the N colors, mark them and list */
+  private def simplifyColors(
       image: InternalImage,
       pixelationStep: Int,
-      colorMap: Map[(Int, Int), Color],
-      colorCodeColorsNum: Int
-  ): InternalImage = {
-    val means    = KMeans(colorCodeColorsNum, colorMap.values.toIndexedSeq)(ColorsSupport)
+      colors: IndexedSeq[Color],
+      simplifiedColorsNum: Int,
+      colorCode: Boolean
+  ): (InternalImage, Option[InternalImage]) = {
+    val means    = KMeans(simplifiedColorsNum, colors)(ColorsSupport)
     val resImage = image.copy
+    val font     = new Font(Font.SANS_SERIF, Font.BOLD, pixelationStep)
+    resImage.graphics.setFont(font)
+    val fm = resImage.graphics.getFontMetrics
     for {
       x <- 0 until resImage.w by pixelationStep
       y <- 0 until resImage.h by pixelationStep
     } {
-      val sample = new Color(image.inner.getRGB(x, y))
-      val mean   = means.classifyAndGet(sample)
+      val sample  = new Color(image.inner.getRGB(x, y))
+      val meanIdx = means.classify(sample)
+      val mean    = means.centroids(meanIdx)
       resImage.graphics.setColor(mean)
       resImage.graphics.fillRect(x, y, pixelationStep, pixelationStep)
+      if (colorCode) {
+        resImage.graphics.setColor(new Color(getContrastRgb(mean.getRGB)))
+        // Taken from https://stackoverflow.com/a/27740330/466646
+        val s = (meanIdx + 1).toString
+        resImage.graphics.drawString(
+          s,
+          x + (pixelationStep - fm.stringWidth(s)).toFloat / 2,
+          y + (pixelationStep - fm.getHeight).toFloat / 2 + fm.getAscent,
+        )
+      }
     }
-    resImage
+    val colorReferenceImageOption = if (colorCode) Some {
+      InternalImage(new BufferedImage(image.w, fm.getHeight * means.k, defaultImageType))
+    } else None
+    colorReferenceImageOption foreach { bottomImage =>
+      val graphic = bottomImage.graphics
+      graphic.setColor(Color.WHITE)
+      graphic.fillRect(0, 0, bottomImage.w, bottomImage.h)
+      graphic.setFont(font)
+      means.centroids.zipWithIndex foreach {
+        case (color, idx) =>
+          graphic.setColor(color)
+          val y = fm.getHeight * idx
+          graphic.fillRect(0, y, bottomImage.w, y + fm.getHeight)
+          graphic.setColor(new Color(getContrastRgb(color.getRGB)))
+          graphic.drawString("Color #" + (idx + 1), 1, y + fm.getAscent)
+      }
+    }
+    (resImage, colorReferenceImageOption)
   }
 }

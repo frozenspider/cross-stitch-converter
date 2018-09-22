@@ -63,13 +63,14 @@ class MainFrame(
 
   private val initComplete = new AtomicBoolean(false)
 
-  private val viewer               = new ImageViewer(null, false)
-  private val loadButton           = UnfocusableButton("Load")
-  private val saveButton           = UnfocusableButton("Save")
-  private val portraitRadioButton  = new RadioButton("Portrait") { selected = true }
-  private val landscapeRadioButton = new RadioButton("Landscape") { selected = false }
-  private val colorCodeCheckbox    = new CheckBox("Color-code") { selected = false }
-  private val colorCodeSpinner     = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
+  private val viewer                 = new ImageViewer(null, false)
+  private val loadButton             = UnfocusableButton("Load")
+  private val saveButton             = UnfocusableButton("Save")
+  private val portraitRadioButton    = new RadioButton("Portrait") { selected = true }
+  private val landscapeRadioButton   = new RadioButton("Landscape") { selected = false }
+  private val simplifyColorsCheckbox = new CheckBox("Simplify to the given number of colors") { selected = false }
+  private val simplifyColorsSpinner  = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
+  private val colorCodeCheckbox      = new CheckBox("and color-code") { selected = false }
 
   private val pixelateSlider = new Slider {
     paintTicks = true
@@ -129,17 +130,19 @@ class MainFrame(
     // Wheel zoom
     viewerImageComponent.addMouseWheelListener(e => {
       val notches = e.getWheelRotation
-      if (viewer.getResizeStrategy != ResizeStrategy.CUSTOM_ZOOM) {
-        val transform = viewer.getImageTransform
-        viewer.setResizeStrategy(ResizeStrategy.CUSTOM_ZOOM)
-        viewer.setZoomFactor(transform.getScaleX)
+      if (viewer.getImage != null) {
+        if (viewer.getResizeStrategy != ResizeStrategy.CUSTOM_ZOOM) {
+          val transform = viewer.getImageTransform
+          viewer.setResizeStrategy(ResizeStrategy.CUSTOM_ZOOM)
+          viewer.setZoomFactor(transform.getScaleX)
+        }
+        val newZoomFactor = if (notches < 0) {
+          viewer.getZoomFactor * zoomCoeff * (-notches)
+        } else {
+          viewer.getZoomFactor / zoomCoeff / notches
+        }
+        viewer.setZoomFactor(newZoomFactor)
       }
-      val newZoomFactor = if (notches < 0) {
-        viewer.getZoomFactor * zoomCoeff * (-notches)
-      } else {
-        viewer.getZoomFactor / zoomCoeff / notches
-      }
-      viewer.setZoomFactor(newZoomFactor)
       e.consume()
     })
 
@@ -193,8 +196,9 @@ class MainFrame(
               contents += landscapeRadioButton
             },
             new BoxPanel(Orientation.Horizontal) {
+              contents += simplifyColorsCheckbox
+              contents += Component.wrap(simplifyColorsSpinner)
               contents += colorCodeCheckbox
-              contents += Component.wrap(colorCodeSpinner)
             }
           )
           contents += new BorderPanel {
@@ -230,29 +234,33 @@ class MainFrame(
       scaleSlider,
       portraitRadioButton,
       landscapeRadioButton,
+      simplifyColorsCheckbox,
       colorCodeCheckbox
     )
     // Button reactions
     reactions += {
-      case ButtonClicked(`loadButton`)           => attempt(loadClicked())
-      case ButtonClicked(`saveButton`)           => attempt(saveClicked())
-      case ButtonClicked(`portraitRadioButton`)  => attempt(scheduleRender())
-      case ButtonClicked(`landscapeRadioButton`) => attempt(scheduleRender())
-      case ButtonClicked(`colorCodeCheckbox`)    => attempt(colorCodeCheckboxClicked())
-      case ValueChanged(`pixelateSlider`)        => attempt(scheduleRender())
-      case ValueChanged(`scaleSlider`)           => attempt(scheduleRender())
+      case ButtonClicked(`loadButton`)             => attempt(loadClicked())
+      case ButtonClicked(`saveButton`)             => attempt(saveClicked())
+      case ButtonClicked(`portraitRadioButton`)    => attempt(scheduleRender())
+      case ButtonClicked(`landscapeRadioButton`)   => attempt(scheduleRender())
+      case ButtonClicked(`simplifyColorsCheckbox`) => attempt(simplifyColorsCheckboxClicked())
+      case ButtonClicked(`colorCodeCheckbox`)      => attempt(scheduleRender())
+      case ValueChanged(`pixelateSlider`)          => attempt(scheduleRender())
+      case ValueChanged(`scaleSlider`)             => attempt(scheduleRender())
     }
-    colorCodeSpinner.addChangeListener(x => attempt(scheduleRender()))
+    simplifyColorsSpinner.addChangeListener(x => attempt(scheduleRender()))
 
     title = BuildInfo.fullPrettyName
     size = new Dimension(1000, 700)
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
-    colorCodeSpinner.setEnabled(false)
+    simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
+    colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
 
-    load(new File("_build/img.png"))
+    // load(new File("_build/img.png"))
     initComplete.set(true)
+    scheduleRender()
   }
 
   private def createFileChooser(lastAccessedPath: String, extFilter: (String, Seq[String])): FileChooser = {
@@ -365,8 +373,9 @@ class MainFrame(
     metadata.mergeTree("javax_imageio_1.0", root)
   }
 
-  private def colorCodeCheckboxClicked(): Unit = {
-    colorCodeSpinner.setEnabled(colorCodeCheckbox.selected)
+  private def simplifyColorsCheckboxClicked(): Unit = {
+    simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
+    colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
     scheduleRender()
   }
 
@@ -462,15 +471,18 @@ class MainFrame(
 
     private def render(): Unit = {
       val scalingFactor = Scaling.linearToLog(scaleSlider.value)
-      val colorCodeColorsNumOption =
-        if (colorCodeCheckbox.selected) Some(colorCodeSpinner.getValue.asInstanceOf[Int]) else None
-      val canvasImage = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, colorCodeColorsNumOption)
+      val simplifyColorsOption =
+        if (simplifyColorsCheckbox.selected)
+          Some((simplifyColorsSpinner.getValue.asInstanceOf[Int], colorCodeCheckbox.selected))
+        else
+          None
+      val canvasImage = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, simplifyColorsOption)
       val innerImage  = imagesService.previousUpdatedImage
 
       SwingUtilities.invokeAndWait(() => {
         viewer.setImage(canvasImage)
 
-        val pixelateMax = (innerImage.getWidth min innerImage.getHeight) / 10
+        val pixelateMax = ((innerImage.getWidth min innerImage.getHeight) / 10) max 10
         pixelateSlider.max = pixelateMax
         pixelateSlider.majorTickSpacing = pixelateMax / 3
         pixelateSlider.labels = {
