@@ -70,6 +70,7 @@ class MainFrame(
   private val landscapeRadioButton   = new RadioButton("Landscape") { selected = false }
   private val dominantRadioButton    = new RadioButton("Dominant") { selected = true }
   private val averageRadioButton     = new RadioButton("Average") { selected = false }
+  private val gridCheckbox           = new CheckBox("Grid overlay") { selected = true }
   private val simplifyColorsCheckbox = new CheckBox("Simplify to the given number of colors") { selected = false }
   private val simplifyColorsSpinner  = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
   private val colorCodeCheckbox      = new CheckBox("and color-code") { selected = false }
@@ -203,6 +204,8 @@ class MainFrame(
               border = BorderFactory.createTitledBorder("Pixelation mode")
               contents += dominantRadioButton
               contents += averageRadioButton
+              contents += new Separator(Orientation.Vertical)
+              contents += gridCheckbox
             },
             new BoxPanel(Orientation.Horizontal) {
               border = BorderFactory.createTitledBorder("Color simplification")
@@ -246,6 +249,7 @@ class MainFrame(
       landscapeRadioButton,
       dominantRadioButton,
       averageRadioButton,
+      gridCheckbox,
       simplifyColorsCheckbox,
       colorCodeCheckbox
     )
@@ -257,6 +261,7 @@ class MainFrame(
       case ButtonClicked(`landscapeRadioButton`)   => attempt(scheduleRender())
       case ButtonClicked(`dominantRadioButton`)    => attempt(scheduleRender())
       case ButtonClicked(`averageRadioButton`)     => attempt(scheduleRender())
+      case ButtonClicked(`gridCheckbox`)           => attempt(scheduleRender())
       case ButtonClicked(`simplifyColorsCheckbox`) => attempt(simplifyColorsCheckboxClicked())
       case ButtonClicked(`colorCodeCheckbox`)      => attempt(scheduleRender())
       case ValueChanged(`pixelateSlider`)          => attempt(scheduleRender())
@@ -495,6 +500,7 @@ class MainFrame(
         scalingFactor,
         pixelateSlider.value,
         pixelationMode,
+        gridCheckbox.selected,
         simplifyColorsOption
       )
       val innerImage = imagesService.previousUpdatedImage

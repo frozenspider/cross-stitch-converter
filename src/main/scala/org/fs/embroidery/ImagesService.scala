@@ -63,6 +63,7 @@ class ImagesService(isPortrait: => Boolean) {
       scalingFactor: Double,
       pixelationStep: Int,
       pixelationMode: Pixelator.Mode,
+      shouldPaintGrid: Boolean,
       simplifyColorsOption: Option[(Int, Boolean)]
   ): BufferedImage = this.synchronized {
     val a4 = a4Image
@@ -78,7 +79,9 @@ class ImagesService(isPortrait: => Boolean) {
         colorReferenceImageOption = res._2
       case None => // NOOP
     }
-    processedImage = paintGrid(processedImage, pixelationStep)
+    if (shouldPaintGrid) {
+      processedImage = paintGrid(processedImage, pixelationStep)
+    }
     colorReferenceImageOption foreach (colorReferenceImage => {
       val prevInnerImage = processedImage.inner
       processedImage = InternalImage(
