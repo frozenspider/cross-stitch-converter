@@ -7,16 +7,30 @@ class KMeans[DT] private (
     val centroids: IndexedSeq[DT]
 )(implicit support: KMeans.KMeansSupport[DT]) {
 
-  lazy val k: Int = centroids.size
+  val k: Int = centroids.size
 
   def apply(i: Int): DT = centroids(i)
 
   /** Classify the given value, returning 0-based index of a cluster (mean) it belongs to */
-  def classify(v: DT): Int =
-    centroids.zipWithIndex.minBy {
-      case (mean, _) => support.getDistance(mean, v)
-    }._2
+  def classify(v: DT): Int = {
+    // Optimized for performance
+    var minDistance: Double = Double.MaxValue
+    var minCentroidIdx: Int = -1
+    for (idx <- 0 until k) {
+      val centroid   = centroids(idx)
+      val sqDistance = support.getSquaredDistance(centroid, v)
+      if (sqDistance < minDistance) {
+        minDistance = sqDistance
+        minCentroidIdx = idx
+      }
+    }
+    minCentroidIdx
+  }
 
+  /** Classify the given value, returning closest centroid */
+  def classifyAndGet(v: DT): DT = {
+    this(classify(v))
+  }
 }
 
 object KMeans {
@@ -30,26 +44,30 @@ object KMeans {
   )(implicit support: KMeansSupport[DT]): Double = {
     val m = data.size
     data.map { v =>
-      val clusterIdx = means.classify(v)
-      val mean       = means(clusterIdx)
-      val distance   = support.getDistance(v, mean)
-      math.pow(distance, 2)
+      val mean = means.classifyAndGet(v)
+      support.getSquaredDistance(v, mean)
     }.sum / m
   }
 
-  def apply[DT: KMeansSupport](k: Int, data: Seq[DT]): KMeans[DT] = {
+  def apply[DT: KMeansSupport](k: Int, data: IndexedSeq[DT]): KMeans[DT] = {
     val support = implicitly[KMeansSupport[DT]]
 
     val distinctData = data.distinct
 
     def initClusters(): KMeans[DT] = {
-      val meanValues = Random.shuffle(distinctData).take(k).toIndexedSeq
+      val meanValues = Random.shuffle(distinctData).take(k)
       new KMeans(meanValues.sorted)
     }
 
     def step(means: KMeans[DT]): KMeans[DT] = {
-      val clustered     = data groupBy (means.classify)
-      val newMeanValues = clustered.values.filter(_.nonEmpty).map(support.getAverage).toIndexedSeq
+      // Optimized for performance
+      val dataWithClusterIdx = data map (v => (v, means.classify(v)))
+      val newMeanValues = for {
+        i <- 0 until means.k
+        vs = dataWithClusterIdx.collect {
+          case (v, clusterIdx) if clusterIdx == i => v
+        } if vs.nonEmpty
+      } yield support.getAverage(vs)
       new KMeans(newMeanValues.sorted)
     }
 
@@ -73,7 +91,7 @@ object KMeans {
   }
 
   trait KMeansSupport[DT] extends Ordering[DT] {
-    def getDistance(v1: DT, v2: DT): Double
-    def getAverage(vs: Seq[DT]): DT
+    def getSquaredDistance(v1: DT, v2: DT): Double
+    def getAverage(vs: IndexedSeq[DT]): DT
   }
 }
