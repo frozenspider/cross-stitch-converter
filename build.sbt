@@ -1,7 +1,7 @@
-name           := "embroidery-marker"
-val prettyName =  "Embroidery Marker"
+name           := "cross-stitch-converter"
+val prettyName =  "Cross-stitch Converter"
 version        := "0.1-SNAPSHOT"
-homepage       := Some(url("https://github.com/frozenspider/embroidery-marker"))
+homepage       := Some(url("https://github.com/frozenspider/cross-stitch-converter"))
 scalaVersion   := "2.12.6"
 
 // Show tests duration and full stacktrace on test errors
@@ -24,11 +24,11 @@ lazy val root = (project in file("."))
     buildInfoOptions ++= Seq(
       BuildInfoOption.BuildTime
     ),
-    buildInfoPackage := "org.fs.embroidery",
+    buildInfoPackage          := "org.fs.embroidery",
     buildInfoUsePackageAsPath := true
   )
 
-resolvers += "jitpack"  at "https://jitpack.io"
+resolvers += "jitpack" at "https://jitpack.io"
 
 libraryDependencies ++= Seq(
   // UI

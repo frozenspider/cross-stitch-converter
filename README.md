@@ -1,9 +1,11 @@
 Description
 -----------
 
-Helper tool for embroidery, which can:
+GUI tool to transform images to cross-stitch patterns.
+
+It can:
 * Pixelate the image
-* Simplify (reduce) colors to the given number
+* Simplify colors, reducing their count to the given number
 * Enumerate the colors, printing color index over each "pixel"
 * Add contrast grid overlay
 

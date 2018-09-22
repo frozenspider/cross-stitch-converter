@@ -4,7 +4,7 @@
 
 val buildOutputPath = file("./_build")
 
-mainClass          in assembly := Some("org.fs.embroidery.EmbroideryMarkerMain")
+mainClass          in assembly := Some("org.fs.embroidery.CrossStitchConverterMain")
 assemblyJarName    in assembly := name.value + ".jar"
 assemblyOutputPath in assembly := buildOutputPath / (assemblyJarName in assembly).value
 
