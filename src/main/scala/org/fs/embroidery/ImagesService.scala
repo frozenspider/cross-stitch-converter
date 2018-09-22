@@ -62,13 +62,14 @@ class ImagesService(isPortrait: => Boolean) {
   def updatedCanvas(
       scalingFactor: Double,
       pixelationStep: Int,
+      pixelationMode: Pixelator.Mode,
       simplifyColorsOption: Option[(Int, Boolean)]
   ): BufferedImage = this.synchronized {
     val a4 = a4Image
     canvasImage = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
     processedImage = loadedImage
     processedImage = scaleImage(processedImage, canvasImage, scalingFactor)
-    val (processedImage2, colorMap) = pixelateImage(processedImage, pixelationStep)
+    val (processedImage2, colorMap) = pixelateImage(processedImage, pixelationStep, pixelationMode)
     processedImage = processedImage2
     simplifyColorsOption match {
       case Some((n, colorCode)) =>
@@ -116,8 +117,12 @@ class ImagesService(isPortrait: => Boolean) {
     InternalImage(resultingImageVal)
   }
 
-  private def pixelateImage(image: InternalImage, pixelationStep: Int): (InternalImage, Map[(Int, Int), Color]) = {
-    val (inner, colorMap) = Pixelator.pixelate(image.inner, pixelationStep)
+  private def pixelateImage(
+      image: InternalImage,
+      pixelationStep: Int,
+      mode: Pixelator.Mode
+  ): (InternalImage, Map[(Int, Int), Color]) = {
+    val (inner, colorMap) = Pixelator.pixelate(image.inner, pixelationStep, mode)
     (InternalImage(inner), colorMap)
   }
 

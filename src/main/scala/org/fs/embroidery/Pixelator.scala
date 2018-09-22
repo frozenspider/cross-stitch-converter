@@ -6,20 +6,29 @@ import java.nio.ByteBuffer
 
 import scala.collection.mutable
 
+import org.fs.embroidery.classify.ColorsSupport
+
 // Taken from https://stackoverflow.com/a/42327288/466646
 object Pixelator {
 
   private type RGB   = Int
   private type Count = Int
 
-  def pixelate(image: BufferedImage, pixelSize: Int): (BufferedImage, Map[(Int, Int), Color]) = {
+  def pixelate(
+      image: BufferedImage,
+      pixelSize: Int,
+      mode: Mode
+  ): (BufferedImage, Map[(Int, Int), Color]) = {
     val pixelateImage = new BufferedImage(image.getWidth, image.getHeight, image.getType)
     val colorMapSeq = for {
       x <- (0 until image.getWidth by pixelSize).par
       y <- (0 until image.getHeight by pixelSize).par
     } yield {
-      val croppedImage  = getCroppedSubImage(image, x, y, pixelSize, pixelSize)
-      val dominantColor = getDominantColor(croppedImage)
+      val croppedImage = getCroppedSubImage(image, x, y, pixelSize, pixelSize)
+      val dominantColor = mode match {
+        case Mode.Dominant => getDominantColor(croppedImage)
+        case Mode.Average  => getAverageColor(croppedImage)
+      }
 
       for {
         xd <- x until math.min(x + pixelSize, pixelateImage.getWidth)
@@ -60,6 +69,15 @@ object Pixelator {
     new Color(chooseStrongestColor(dominantColors))
   }
 
+  private def getAverageColor(image: BufferedImage): Color = {
+    val colors = for {
+      x <- 0 until image.getWidth
+      y <- 0 until image.getHeight
+    } yield new Color(image.getRGB(x, y))
+    val avg = ColorsSupport.getAverage(colors)
+    avg
+  }
+
   private def chooseStrongestColor(colors: List[RGB]): RGB = colors match {
     case rgb :: Nil => rgb
     case rgbs       => rgbs maxBy rgbToComparable
@@ -74,4 +92,10 @@ object Pixelator {
 
   private def ubyte2int(b: Byte) =
     java.lang.Byte.toUnsignedInt(b)
+
+  sealed trait Mode
+  object Mode {
+    case object Dominant extends Mode
+    case object Average  extends Mode
+  }
 }

@@ -68,6 +68,8 @@ class MainFrame(
   private val saveButton             = UnfocusableButton("Save")
   private val portraitRadioButton    = new RadioButton("Portrait") { selected = true }
   private val landscapeRadioButton   = new RadioButton("Landscape") { selected = false }
+  private val dominantRadioButton    = new RadioButton("Dominant") { selected = true }
+  private val averageRadioButton     = new RadioButton("Average") { selected = false }
   private val simplifyColorsCheckbox = new CheckBox("Simplify to the given number of colors") { selected = false }
   private val simplifyColorsSpinner  = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
   private val colorCodeCheckbox      = new CheckBox("and color-code") { selected = false }
@@ -189,13 +191,21 @@ class MainFrame(
       val centerPanel = new BorderPanel {
         layout(Component.wrap(viewer.getComponent)) = Center
         val configPanel = new BoxPanel(Orientation.Vertical) {
-          new ButtonGroup(portraitRadioButton, landscapeRadioButton)
           contents += new FlowPanel(
-            new BoxPanel(Orientation.Vertical) {
+            new BoxPanel(Orientation.Horizontal) {
+              new ButtonGroup(portraitRadioButton, landscapeRadioButton)
+              border = BorderFactory.createTitledBorder("Page orientation")
               contents += portraitRadioButton
               contents += landscapeRadioButton
             },
             new BoxPanel(Orientation.Horizontal) {
+              new ButtonGroup(dominantRadioButton, averageRadioButton)
+              border = BorderFactory.createTitledBorder("Pixelation mode")
+              contents += dominantRadioButton
+              contents += averageRadioButton
+            },
+            new BoxPanel(Orientation.Horizontal) {
+              border = BorderFactory.createTitledBorder("Color simplification")
               contents += simplifyColorsCheckbox
               contents += Component.wrap(simplifyColorsSpinner)
               contents += colorCodeCheckbox
@@ -234,6 +244,8 @@ class MainFrame(
       scaleSlider,
       portraitRadioButton,
       landscapeRadioButton,
+      dominantRadioButton,
+      averageRadioButton,
       simplifyColorsCheckbox,
       colorCodeCheckbox
     )
@@ -243,6 +255,8 @@ class MainFrame(
       case ButtonClicked(`saveButton`)             => attempt(saveClicked())
       case ButtonClicked(`portraitRadioButton`)    => attempt(scheduleRender())
       case ButtonClicked(`landscapeRadioButton`)   => attempt(scheduleRender())
+      case ButtonClicked(`dominantRadioButton`)    => attempt(scheduleRender())
+      case ButtonClicked(`averageRadioButton`)     => attempt(scheduleRender())
       case ButtonClicked(`simplifyColorsCheckbox`) => attempt(simplifyColorsCheckboxClicked())
       case ButtonClicked(`colorCodeCheckbox`)      => attempt(scheduleRender())
       case ValueChanged(`pixelateSlider`)          => attempt(scheduleRender())
@@ -470,14 +484,20 @@ class MainFrame(
     }
 
     private def render(): Unit = {
-      val scalingFactor = Scaling.linearToLog(scaleSlider.value)
+      val scalingFactor  = Scaling.linearToLog(scaleSlider.value)
+      val pixelationMode = if (dominantRadioButton.selected) Pixelator.Mode.Dominant else Pixelator.Mode.Average
       val simplifyColorsOption =
         if (simplifyColorsCheckbox.selected)
           Some((simplifyColorsSpinner.getValue.asInstanceOf[Int], colorCodeCheckbox.selected))
         else
           None
-      val canvasImage = imagesService.updatedCanvas(scalingFactor, pixelateSlider.value, simplifyColorsOption)
-      val innerImage  = imagesService.previousUpdatedImage
+      val canvasImage = imagesService.updatedCanvas(
+        scalingFactor,
+        pixelateSlider.value,
+        pixelationMode,
+        simplifyColorsOption
+      )
+      val innerImage = imagesService.previousUpdatedImage
 
       SwingUtilities.invokeAndWait(() => {
         viewer.setImage(canvasImage)
