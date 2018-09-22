@@ -1,6 +1,6 @@
 name           := "embroidery-marker"
 val prettyName =  "Embroidery Marker"
-version        := "0.1-SNAPSHOT"
+version        := "0.1"
 homepage       := Some(url("https://github.com/frozenspider/embroidery-marker"))
 scalaVersion   := "2.12.6"
 
