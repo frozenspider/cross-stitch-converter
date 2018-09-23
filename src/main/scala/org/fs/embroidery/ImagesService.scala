@@ -64,7 +64,7 @@ class ImagesService(isPortrait: => Boolean) {
       pixelationStep: Int,
       pixelationMode: Pixelator.Mode,
       shouldPaintGrid: Boolean,
-      simplifyColorsOption: Option[(Int, Boolean)]
+      simplifyColorsOption: Option[(Int, Boolean, Boolean)]
   ): BufferedImage = this.synchronized {
     val a4 = a4Image
     canvasImage = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
@@ -73,8 +73,8 @@ class ImagesService(isPortrait: => Boolean) {
     val (processedImage2, colorMap) = pixelateImage(processedImage, pixelationStep, pixelationMode)
     processedImage = processedImage2
     simplifyColorsOption match {
-      case Some((n, colorCode)) =>
-        val res = simplifyColors(processedImage, pixelationStep, colorMap.values.toIndexedSeq, n, colorCode)
+      case Some((n, colorCode, distinctOnly)) =>
+        val res = simplifyColors(processedImage, pixelationStep, colorMap.values.toIndexedSeq, n, colorCode, distinctOnly)
         processedImage = res._1
         colorReferenceImageOption = res._2
       case None =>
@@ -171,9 +171,10 @@ class ImagesService(isPortrait: => Boolean) {
       pixelationStep: Int,
       colors: IndexedSeq[Color],
       simplifiedColorsNum: Int,
-      colorCode: Boolean
+      colorCode: Boolean,
+      distinctOnly: Boolean
   ): (InternalImage, Option[InternalImage]) = {
-    val means    = KMeans(simplifiedColorsNum, colors)(ColorsSupport)
+    val means    = KMeans(simplifiedColorsNum, colors, distinctOnly)(ColorsSupport)
     val resImage = image.copy
     val font     = new Font(Font.SANS_SERIF, Font.BOLD, pixelationStep)
     resImage.graphics.setFont(font)

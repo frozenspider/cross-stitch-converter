@@ -10,7 +10,6 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-import scala.collection.JavaConverters
 import scala.swing.BorderPanel
 import scala.swing._
 import scala.swing.event.ButtonClicked
@@ -62,7 +61,8 @@ class MainFrame(
   private val gridCheckbox           = new CheckBox("Grid overlay") { selected = true }
   private val simplifyColorsCheckbox = new CheckBox("Simplify to the given number of colors") { selected = false }
   private val simplifyColorsSpinner  = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
-  private val colorCodeCheckbox      = new CheckBox("and color-code") { selected = false }
+  private val useDistinctCheckbox    = new CheckBox("Treat colors irrelatively of quantity") { selected = false }
+  private val colorCodeCheckbox      = new CheckBox("Color-code") { selected = false }
 
   private val imageFileSuffixes = ImageIO.getReaderFileSuffixes
 
@@ -196,11 +196,16 @@ class MainFrame(
               contents += new Separator(Orientation.Vertical)
               contents += gridCheckbox
             },
-            new BoxPanel(Orientation.Horizontal) {
+            new BoxPanel(Orientation.Vertical) {
               border = BorderFactory.createTitledBorder("Color simplification")
-              contents += simplifyColorsCheckbox
-              contents += Component.wrap(simplifyColorsSpinner)
-              contents += colorCodeCheckbox
+              contents += new FlowPanel(
+                simplifyColorsCheckbox,
+                Component.wrap(simplifyColorsSpinner)
+              ) { vGap = 0; hGap = 0 }
+              contents += new FlowPanel(
+                colorCodeCheckbox,
+                useDistinctCheckbox
+              ) { vGap = 0; hGap = 0 }
             }
           )
           contents += new BorderPanel {
@@ -232,6 +237,7 @@ class MainFrame(
       averageRadioButton,
       gridCheckbox,
       simplifyColorsCheckbox,
+      useDistinctCheckbox,
       colorCodeCheckbox
     )
     // Button reactions
@@ -244,6 +250,7 @@ class MainFrame(
       case ButtonClicked(`averageRadioButton`)     => attempt(scheduleRender())
       case ButtonClicked(`gridCheckbox`)           => attempt(scheduleRender())
       case ButtonClicked(`simplifyColorsCheckbox`) => attempt(simplifyColorsCheckboxClicked())
+      case ButtonClicked(`useDistinctCheckbox`)    => attempt(scheduleRender())
       case ButtonClicked(`colorCodeCheckbox`)      => attempt(scheduleRender())
       case ValueChanged(`pixelateSlider`)          => attempt(scheduleRender())
       case ValueChanged(`scaleSlider`)             => attempt(scheduleRender())
@@ -257,6 +264,7 @@ class MainFrame(
 
     peer.setTransferHandler(DataTransferHandler)
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
+    useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
     colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
 
     // load(new File("_build/img.png"))
@@ -384,6 +392,7 @@ class MainFrame(
 
   private def simplifyColorsCheckboxClicked(): Unit = {
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
+    useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
     colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
     scheduleRender()
   }
@@ -475,7 +484,7 @@ class MainFrame(
           attempt.isSuccess
         }
       } else if (checkDataFlavor(imageFlavor)) {
-        val image = getData(imageFlavor).asInstanceOf[BufferedImage]
+        val image   = getData(imageFlavor).asInstanceOf[BufferedImage]
         val attempt = Try(load(image))
         attempt.failed foreach showError
         attempt.isSuccess
@@ -529,7 +538,11 @@ class MainFrame(
       val pixelationMode = if (dominantRadioButton.selected) Pixelator.Mode.Dominant else Pixelator.Mode.Average
       val simplifyColorsOption =
         if (simplifyColorsCheckbox.selected)
-          Some((simplifyColorsSpinner.getValue.asInstanceOf[Int], colorCodeCheckbox.selected))
+          Some(
+            (
+              simplifyColorsSpinner.getValue.asInstanceOf[Int],
+              colorCodeCheckbox.selected,
+              useDistinctCheckbox.selected))
         else
           None
       val canvasImage = imagesService.updatedCanvas(

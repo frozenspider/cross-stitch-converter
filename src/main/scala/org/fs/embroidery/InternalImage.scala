@@ -5,9 +5,9 @@ import java.awt.image.BufferedImage
 
 /** A wrapper class for mutable AWT image */
 case class InternalImage(inner: BufferedImage, graphics: Graphics2D) {
-  def w       = inner.getWidth
-  def h       = inner.getHeight
-  def typeInt = inner.getType
+  def w:       Int = inner.getWidth
+  def h:       Int = inner.getHeight
+  def typeInt: Int = inner.getType
 
   /** Create an independent copy of this image */
   def copy: InternalImage = {
