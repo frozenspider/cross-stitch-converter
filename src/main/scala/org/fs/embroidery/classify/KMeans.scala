@@ -20,7 +20,7 @@ class KMeans[DT] private (
       val centroid   = centroids(idx)
       val sqDistance = support.getSquaredDistance(centroid, v)
       if (sqDistance < minDistance) {
-        minDistance    = sqDistance
+        minDistance = sqDistance
         minCentroidIdx = idx
       }
     }
@@ -53,7 +53,7 @@ object KMeans {
     val support = implicitly[KMeansSupport[DT]]
 
     val distinctData = data.distinct
-    val dataToUse = if (distinctOnly) distinctData else data
+    val dataToUse    = if (distinctOnly) distinctData else data
 
     def initClusters(): KMeans[DT] = {
       val meanValues = Random.shuffle(distinctData).take(k)

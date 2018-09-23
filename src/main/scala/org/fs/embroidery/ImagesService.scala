@@ -76,7 +76,8 @@ class ImagesService(isPortrait: => Boolean) {
     processedImage = processedImage2
     simplifyColorsOption match {
       case Some((n, colorCode, distinctOnly)) =>
-        val res = simplifyColors(processedImage, pixelationStep, colorMap.values.toIndexedSeq, n, colorCode, distinctOnly)
+        val res =
+          simplifyColors(processedImage, pixelationStep, colorMap.values.toIndexedSeq, n, colorCode, distinctOnly)
         processedImage = res._1
         colorReferenceImageOption = res._2
       case None =>
