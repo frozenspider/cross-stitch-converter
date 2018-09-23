@@ -1,40 +1,26 @@
 package org.fs.embroidery
 
-import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Font
+import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
-import java.awt.event.MouseListener
 import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.collection.JavaConverters
-import scala.concurrent.Future
 import scala.swing.BorderPanel
 import scala.swing._
 import scala.swing.event.ButtonClicked
-import scala.swing.event.MouseClicked
 import scala.swing.event.ValueChanged
-import scala.util.Failure
-import scala.util.Success
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Try
 
 import com.typesafe.config.Config
-import com.typesafe.config.ConfigValue
 import com.typesafe.config.ConfigValueFactory
 import hu.kazocsaba.imageviewer.DefaultStatusBar
-import hu.kazocsaba.imageviewer.ImageMouseClickListener
-import hu.kazocsaba.imageviewer.ImageMouseEvent
-import hu.kazocsaba.imageviewer.ImageMouseMotionListener
 import hu.kazocsaba.imageviewer.ImageViewer
-import hu.kazocsaba.imageviewer.Overlay
 import hu.kazocsaba.imageviewer.ResizeStrategy
 import javax.imageio.IIOImage
 import javax.imageio.ImageIO
@@ -43,7 +29,6 @@ import javax.imageio.ImageWriter
 import javax.imageio.metadata.IIOMetadata
 import javax.imageio.metadata.IIOMetadataNode
 import javax.swing.AbstractAction
-import org.slf4s.Logging
 import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JLayeredPane
@@ -57,6 +42,7 @@ import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.filechooser.FileSystemView
 import org.apache.commons.io.FilenameUtils
+import org.slf4s.Logging
 
 class MainFrame(
     var config: Config,
@@ -182,7 +168,7 @@ class MainFrame(
         peer.getActionMap.put(key, (_ => f): AbstractAction)
       }
 
-      import BorderPanel.Position._
+      import scala.swing.BorderPanel.Position._
       val topPanel = new BorderPanel {
         layout(
           new FlowPanel(
@@ -232,16 +218,8 @@ class MainFrame(
       val bottomPanel = new BorderPanel {}
       layout(bottomPanel) = South
       addHotkey("save", KeyEvent.VK_S, InputEvent.CTRL_MASK, attempt(saveClicked()))
+      addHotkey("paste", KeyEvent.VK_V, InputEvent.CTRL_MASK, attempt(paste()))
     }
-    def styleComponents(): Unit = {
-//      pixelateSlider.margin = new Insets(0, 2, 0, 2)
-//      findFromStartBtn.margin = new Insets(0, 2, 0, 2)
-//      pasteLeftBtn.margin = new Insets(2, 2, 2, 2)
-//      pasteRightBtn.margin = new Insets(2, 2, 2, 2)
-//      editorScrollPane.border = defaultBorder
-//      editorScrollPane.preferredSize = new Dimension(0, 100)
-    }
-    styleComponents()
 
     listenTo(
       loadButton,
@@ -277,7 +255,7 @@ class MainFrame(
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
-    peer.setTransferHandler(DragNDropTransferHandler)
+    peer.setTransferHandler(DataTransferHandler)
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
     colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
 
@@ -312,6 +290,18 @@ class MainFrame(
     }
   }
 
+  private def load(file: File): Unit = {
+    load(ImageIO.read(file))
+  }
+
+  private def load(image: BufferedImage): Unit = {
+    saveButton.enabled = true
+    pixelateSlider.value = 10
+    scaleSlider.value = 0
+    imagesService.load(image)
+    RenderAsync.enqueue()
+  }
+
   private def saveClicked(): Unit = {
     val fc = createFileChooser(
       getConfigStringOr(MainFrame.SaveFilePath, defaultPath),
@@ -333,17 +323,8 @@ class MainFrame(
     }
   }
 
-  private def load(file: File): Unit = {
-    saveButton.enabled = true
-    val image = ImageIO.read(file)
-    pixelateSlider.value = 10
-    scaleSlider.value = 0
-    imagesService.load(image)
-    RenderAsync.enqueue()
-  }
-
   private def save(file: File): Unit = {
-    import JavaConverters._
+    import scala.collection.JavaConverters._
     val image = imagesService.previousUpdatedImage
     val fmt   = "png"
     val file2 = if (FilenameUtils.isExtension(file.getName, fmt)) file else new File(file.getAbsolutePath + ".png")
@@ -377,6 +358,11 @@ class MainFrame(
           stream.close()
         }
       }
+  }
+
+  private def paste(): Unit = {
+    val clipboard = Toolkit.getDefaultToolkit.getSystemClipboard
+    DataTransferHandler.importDataInner(clipboard.isDataFlavorAvailable, clipboard.getData)
   }
 
   private def setPngDpi(metadata: IIOMetadata): Unit = {
@@ -453,10 +439,11 @@ class MainFrame(
     saveConfig(config)
   }
 
-  object DragNDropTransferHandler extends TransferHandler {
-    import JavaConverters._
+  object DataTransferHandler extends TransferHandler {
+    import scala.collection.JavaConverters._
 
     private val fileListFlavor = DataFlavor.javaFileListFlavor
+    private val imageFlavor    = DataFlavor.imageFlavor
 
     override def canImport(support: TransferHandler.TransferSupport): Boolean = {
       if (!support.isDrop) {
@@ -469,18 +456,31 @@ class MainFrame(
     }
 
     override def importData(support: TransferHandler.TransferSupport): Boolean = {
-      if (!support.isDataFlavorSupported(fileListFlavor)) {
-        false
-      } else {
-        val data = support.getTransferable.getTransferData(fileListFlavor).asInstanceOf[java.util.List[File]].asScala
+      importDataInner(support.isDataFlavorSupported, support.getTransferable.getTransferData)
+    }
+
+    /** Import data from flavored source, used for both drag-n-drop and clipboard paste */
+    def importDataInner(
+        checkDataFlavor: DataFlavor => Boolean,
+        getData: DataFlavor => Object
+    ): Boolean = {
+      if (checkDataFlavor(fileListFlavor)) {
+        val data = getData(fileListFlavor).asInstanceOf[java.util.List[File]].asScala
         val file = data.head
-        if (data.tail.nonEmpty || !imageFileSuffixes.contains(FilenameUtils.getExtension(file.getName))) {
+        if (data.tail.nonEmpty || !imageFileSuffixes.contains(FilenameUtils.getExtension(file.getName).toLowerCase)) {
           false
         } else {
           val attempt = Try(load(file))
           attempt.failed foreach showError
           attempt.isSuccess
         }
+      } else if (checkDataFlavor(imageFlavor)) {
+        val image = getData(imageFlavor).asInstanceOf[BufferedImage]
+        val attempt = Try(load(image))
+        attempt.failed foreach showError
+        attempt.isSuccess
+      } else {
+        false
       }
     }
   }
