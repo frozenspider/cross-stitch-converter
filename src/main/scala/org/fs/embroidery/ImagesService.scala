@@ -13,7 +13,9 @@ class ImagesService(isPortrait: => Boolean) {
 
   val dpi: Int = 150
 
-  private val a4SizeMm: (Int, Int)         = (210, 297)
+  val mmPerPixel = (BigDecimal("25.4") / dpi).setScale(2, BigDecimal.RoundingMode.HALF_UP)
+
+  private val a4SizeMm:   (Int, Int)       = (210, 297)
   private val a4SizeInch: (Double, Double) = (8.27d, 11.69d)
 
   private val defaultImageType = BufferedImage.TYPE_4BYTE_ABGR
@@ -161,7 +163,7 @@ class ImagesService(isPortrait: => Boolean) {
   }
 
   private def isGrey(rgb: Int): Boolean = {
-    val hsb = ColorCoder.getHsb(rgb)
+    val hsb = ColorUtils.getHsb(rgb)
     hsb.saturation < 0.2 && (hsb.brightness > 0.3 && hsb.brightness < 0.7)
   }
 

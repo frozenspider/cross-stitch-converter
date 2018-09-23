@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import scala.swing.BorderPanel
 import scala.swing._
 import scala.swing.event.ButtonClicked
+import scala.swing.event.MouseMoved
 import scala.swing.event.ValueChanged
 import scala.util.Try
 
@@ -36,6 +37,7 @@ import javax.swing.JSpinner
 import javax.swing.KeyStroke
 import javax.swing.SpinnerNumberModel
 import javax.swing.SwingUtilities
+import javax.swing.ToolTipManager
 import javax.swing.TransferHandler
 import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -100,11 +102,9 @@ class MainFrame(
   // Initialization block
   //
 
-  // TODO: Clipboard
+  // TODO: Row/column display in color-coding
 
   attempt {
-    saveButton.enabled = false
-
     val zoomCoeff = 1.2
     val viewerScrollPane = viewer.getComponent
       .getComponent(0)
@@ -137,17 +137,6 @@ class MainFrame(
       }
       e.consume()
     })
-
-    viewer.setStatusBar(new DefaultStatusBar {
-      override def updateLabel(image: BufferedImage, x: Int, y: Int, availableWidth: Int): Unit = {
-        super.updateLabel(image, x, y, availableWidth)
-        val newText = label.getText +
-          ", zoom " + viewer.getZoomFactor +
-          ", color " + ColorCoder.classifyColor(image.getRGB(x, y))
-        label.setText(newText)
-      }
-    })
-    viewer.setStatusBarVisible(true)
 
     viewer.addOverlay((g: Graphics2D, image: BufferedImage, transform: AffineTransform) => {
       g.setColor(Color.DARK_GRAY)
@@ -209,7 +198,7 @@ class MainFrame(
             }
           )
           contents += new BorderPanel {
-            layout(new Label("Pixelation step:")) = West
+            layout(new Label("Pixelation step")) = West
             layout(pixelateSlider) = Center
           }
           contents += new BorderPanel {
@@ -238,7 +227,7 @@ class MainFrame(
       gridCheckbox,
       simplifyColorsCheckbox,
       useDistinctCheckbox,
-      colorCodeCheckbox
+      colorCodeCheckbox,
     )
     // Button reactions
     reactions += {
@@ -252,7 +241,7 @@ class MainFrame(
       case ButtonClicked(`simplifyColorsCheckbox`) => attempt(simplifyColorsCheckboxClicked())
       case ButtonClicked(`useDistinctCheckbox`)    => attempt(scheduleRender())
       case ButtonClicked(`colorCodeCheckbox`)      => attempt(scheduleRender())
-      case ValueChanged(`pixelateSlider`)          => attempt(scheduleRender())
+      case ValueChanged(`pixelateSlider`)          => attempt(pixelateSliderValueChanged())
       case ValueChanged(`scaleSlider`)             => attempt(scheduleRender())
     }
     simplifyColorsSpinner.addChangeListener(x => attempt(scheduleRender()))
@@ -263,9 +252,11 @@ class MainFrame(
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
     peer.setTransferHandler(DataTransferHandler)
+    ToolTipManager.sharedInstance().setInitialDelay(0)
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
     useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
     colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
+    saveButton.enabled = false
 
     // load(new File("_build/img.png"))
     initComplete.set(true)
@@ -394,6 +385,12 @@ class MainFrame(
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
     useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
     colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
+    scheduleRender()
+  }
+
+  private def pixelateSliderValueChanged(): Unit = {
+    val mmValue = imagesService.mmPerPixel * pixelateSlider.value
+    pixelateSlider.tooltip = s"${pixelateSlider.value} px = $mmValue mm"
     scheduleRender()
   }
 
