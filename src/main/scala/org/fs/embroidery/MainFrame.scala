@@ -3,6 +3,7 @@ package org.fs.embroidery
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Font
+import java.awt.datatransfer.DataFlavor
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -23,6 +24,7 @@ import scala.swing.event.ValueChanged
 import scala.util.Failure
 import scala.util.Success
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.Try
 
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigValue
@@ -50,6 +52,7 @@ import javax.swing.JSpinner
 import javax.swing.KeyStroke
 import javax.swing.SpinnerNumberModel
 import javax.swing.SwingUtilities
+import javax.swing.TransferHandler
 import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.filechooser.FileSystemView
@@ -74,6 +77,8 @@ class MainFrame(
   private val simplifyColorsCheckbox = new CheckBox("Simplify to the given number of colors") { selected = false }
   private val simplifyColorsSpinner  = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
   private val colorCodeCheckbox      = new CheckBox("and color-code") { selected = false }
+
+  private val imageFileSuffixes = ImageIO.getReaderFileSuffixes
 
   private val pixelateSlider = new Slider {
     paintTicks = true
@@ -110,8 +115,6 @@ class MainFrame(
   //
 
   // TODO: Clipboard
-  // TODO: Drag-n-drop
-  // TODO: Mouse controls
 
   attempt {
     saveButton.enabled = false
@@ -274,6 +277,7 @@ class MainFrame(
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
+    peer.setTransferHandler(DragNDropTransferHandler)
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
     colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
 
@@ -298,7 +302,7 @@ class MainFrame(
   private def loadClicked(): Unit = {
     val fc = createFileChooser(
       getConfigStringOr(MainFrame.LoadFilePath, defaultPath),
-      ("Images", Seq("jpg", "jpeg", "gif", "png"))
+      ("Images", imageFileSuffixes)
     )
     fc.showOpenDialog(this) match {
       case FileChooser.Result.Approve =>
@@ -447,6 +451,38 @@ class MainFrame(
   private def updateConfigString(path: String, value: String): Unit = this.synchronized {
     config = config.withValue(path, ConfigValueFactory.fromAnyRef(value))
     saveConfig(config)
+  }
+
+  object DragNDropTransferHandler extends TransferHandler {
+    import JavaConverters._
+
+    private val fileListFlavor = DataFlavor.javaFileListFlavor
+
+    override def canImport(support: TransferHandler.TransferSupport): Boolean = {
+      if (!support.isDrop) {
+        false
+      } else {
+        // We cannot invoke support.getTransferable.getTransferData here!
+        // See https://bugs.java.com/bugdatabase/view_bug.do?bug_id=6759788
+        support.isDataFlavorSupported(fileListFlavor)
+      }
+    }
+
+    override def importData(support: TransferHandler.TransferSupport): Boolean = {
+      if (!support.isDataFlavorSupported(fileListFlavor)) {
+        false
+      } else {
+        val data = support.getTransferable.getTransferData(fileListFlavor).asInstanceOf[java.util.List[File]].asScala
+        val file = data.head
+        if (data.tail.nonEmpty || !imageFileSuffixes.contains(FilenameUtils.getExtension(file.getName))) {
+          false
+        } else {
+          val attempt = Try(load(file))
+          attempt.failed foreach showError
+          attempt.isSuccess
+        }
+      }
+    }
   }
 
   object Scaling {
