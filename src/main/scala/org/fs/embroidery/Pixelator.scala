@@ -8,7 +8,6 @@ import scala.collection.mutable
 
 import org.fs.embroidery.classify.ColorsSupport
 
-// Taken from https://stackoverflow.com/a/42327288/466646
 object Pixelator {
 
   private type RGB   = Int
@@ -57,12 +56,14 @@ object Pixelator {
     if (v < range.start) range.start else if (v > range.end) range.end else v
 
   private def getDominantColor(image: BufferedImage): Color = {
+    // Based on https://stackoverflow.com/a/42327288/466646
     val colorCounter = mutable.Map.empty[RGB, Count]
-    for (x <- 0 until image.getWidth) {
-      for (y <- 0 until image.getHeight) {
-        val currentRGB = image.getRGB(x, y)
-        colorCounter.put(currentRGB, colorCounter.getOrElse(currentRGB, 0) + 1)
-      }
+    for {
+      x <- 0 until image.getWidth
+      y <- 0 until image.getHeight
+    } {
+      val currentRGB = image.getRGB(x, y)
+      colorCounter.put(currentRGB, colorCounter.getOrElse(currentRGB, 0) + 1)
     }
     val maxCount       = colorCounter.values.max
     val dominantColors = colorCounter.filter(_._2 == maxCount).keys.toList

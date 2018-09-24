@@ -69,20 +69,20 @@ class MainFrame(
   private val imageFileSuffixes = ImageIO.getReaderFileSuffixes
 
   private val pixelateSlider = new Slider {
-    paintTicks = true
-    paintLabels = true
-    snapToTicks = true
+    paintTicks       = true
+    paintLabels      = true
+    snapToTicks      = true
     minorTickSpacing = 1
-    min = 3
+    min              = 3
   }
   private val scaleSlider = new Slider {
     import Scaling._
-    paintTicks = true
-    paintLabels = true
+    paintTicks       = true
+    paintLabels      = true
     minorTickSpacing = LogCoeff
-    min = -LogCoeff * 2
-    max = LogCoeff * 2
-    value = 0
+    min              = -LogCoeff * 2
+    max              = LogCoeff * 2
+    value            = 0
     labels = Map(
       (-LogCoeff * 2)                    -> new Label("x0.01"),
       (-LogCoeff * math.log10(20)).toInt -> new Label("x0.05"),
@@ -96,13 +96,11 @@ class MainFrame(
     )
   }
 
-  private val imagesService = new ImagesService(portraitRadioButton.selected)
+  private val imageService = new ImageService(portraitRadioButton.selected)
 
   //
   // Initialization block
   //
-
-  // TODO: Row/column display in color-coding
 
   attempt {
     val zoomCoeff = 1.2
@@ -199,11 +197,11 @@ class MainFrame(
           )
           contents += new BorderPanel {
             layout(new Label("Pixelation step")) = West
-            layout(pixelateSlider) = Center
+            layout(pixelateSlider)               = Center
           }
           contents += new BorderPanel {
             layout(new Label("Scale:")) = West
-            layout(scaleSlider) = Center
+            layout(scaleSlider)         = Center
           }
         }
         layout(configPanel) = South
@@ -247,7 +245,7 @@ class MainFrame(
     simplifyColorsSpinner.addChangeListener(x => attempt(scheduleRender()))
 
     title = BuildInfo.fullPrettyName
-    size = new Dimension(1000, 700)
+    size  = new Dimension(1000, 700)
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
@@ -255,8 +253,8 @@ class MainFrame(
     ToolTipManager.sharedInstance().setInitialDelay(0)
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
     useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
-    colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
-    saveButton.enabled = false
+    colorCodeCheckbox.enabled   = simplifyColorsCheckbox.selected
+    saveButton.enabled          = false
 
     // load(new File("_build/img.png"))
     initComplete.set(true)
@@ -282,22 +280,21 @@ class MainFrame(
       ("Images", imageFileSuffixes)
     )
     fc.showOpenDialog(this) match {
-      case FileChooser.Result.Approve =>
-        updateConfigString(MainFrame.LoadFilePath, fc.selectedFile.getParentFile.getAbsolutePath)
-        load(fc.selectedFile)
-      case _ => // NOOP
+      case FileChooser.Result.Approve => load(fc.selectedFile)
+      case _                          => // NOOP
     }
   }
 
   private def load(file: File): Unit = {
+    updateConfigString(MainFrame.LoadFilePath, file.getParentFile.getAbsolutePath)
     load(ImageIO.read(file))
   }
 
   private def load(image: BufferedImage): Unit = {
-    saveButton.enabled = true
+    saveButton.enabled   = true
     pixelateSlider.value = 10
-    scaleSlider.value = 0
-    imagesService.load(image)
+    scaleSlider.value    = 0
+    imageService.load(image)
     RenderAsync.enqueue()
   }
 
@@ -324,7 +321,7 @@ class MainFrame(
 
   private def save(file: File): Unit = {
     import scala.collection.JavaConverters._
-    val image = imagesService.previousUpdatedImage
+    val image = imageService.previousUpdatedImage
     val fmt   = "png"
     val file2 = if (FilenameUtils.isExtension(file.getName, fmt)) file else new File(file.getAbsolutePath + ".png")
     saveInner(file2, image, ImageIO.getImageWritersByFormatName(fmt).asScala.toList)
@@ -367,7 +364,7 @@ class MainFrame(
   private def setPngDpi(metadata: IIOMetadata): Unit = {
     val cmPerInch = 2.54
     // For PMG, it's dots per millimeter
-    val dotsPerMilli = imagesService.dpi.toDouble / 10 / cmPerInch
+    val dotsPerMilli = imageService.dpi.toDouble / 10 / cmPerInch
 
     val horiz = new IIOMetadataNode("HorizontalPixelSize")
     val vert  = new IIOMetadataNode("VerticalPixelSize")
@@ -384,12 +381,12 @@ class MainFrame(
   private def simplifyColorsCheckboxClicked(): Unit = {
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
     useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
-    colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
+    colorCodeCheckbox.enabled   = simplifyColorsCheckbox.selected
     scheduleRender()
   }
 
   private def pixelateSliderValueChanged(): Unit = {
-    val mmValue = imagesService.mmPerPixel * pixelateSlider.value
+    val mmValue = imageService.mmPerPixel * pixelateSlider.value
     pixelateSlider.tooltip = s"${pixelateSlider.value} px = $mmValue mm"
     scheduleRender()
   }
@@ -542,20 +539,20 @@ class MainFrame(
               useDistinctCheckbox.selected))
         else
           None
-      val canvasImage = imagesService.updatedCanvas(
+      val canvasImage = imageService.updatedCanvas(
         scalingFactor,
         pixelateSlider.value,
         pixelationMode,
         gridCheckbox.selected,
         simplifyColorsOption
       )
-      val innerImage = imagesService.previousUpdatedImage
+      val innerImage = imageService.previousUpdatedImage
 
       SwingUtilities.invokeAndWait(() => {
         viewer.setImage(canvasImage)
 
         val pixelateMax = ((innerImage.getWidth min innerImage.getHeight) / 10) max 10
-        pixelateSlider.max = pixelateMax
+        pixelateSlider.max              = pixelateMax
         pixelateSlider.majorTickSpacing = pixelateMax / 3
         pixelateSlider.labels = {
           val range = pixelateSlider.min +: (10 until pixelateSlider.max by 10) :+ pixelateSlider.max

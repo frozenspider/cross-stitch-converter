@@ -3,6 +3,7 @@ package org.fs.embroidery.classify
 import scala.annotation.tailrec
 import scala.util.Random
 
+/** Naïve implementation of k-means clustering algorithm */
 class KMeans[DT] private (
     val centroids: IndexedSeq[DT]
 )(implicit support: KMeans.KMeansSupport[DT]) {
