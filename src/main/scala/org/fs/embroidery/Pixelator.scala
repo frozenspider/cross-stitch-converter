@@ -6,11 +6,11 @@ import java.nio.ByteBuffer
 
 import scala.collection.mutable
 
+import org.fs.embroidery.ColorUtils._
 import org.fs.embroidery.classify.ColorsSupport
 
 object Pixelator {
 
-  private type RGB   = Int
   private type Count = Int
 
   def pixelate(

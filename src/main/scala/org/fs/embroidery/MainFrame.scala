@@ -10,16 +10,15 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
+import scala.annotation.tailrec
 import scala.swing.BorderPanel
 import scala.swing._
 import scala.swing.event.ButtonClicked
-import scala.swing.event.MouseMoved
 import scala.swing.event.ValueChanged
 import scala.util.Try
 
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigValueFactory
-import hu.kazocsaba.imageviewer.DefaultStatusBar
 import hu.kazocsaba.imageviewer.ImageViewer
 import hu.kazocsaba.imageviewer.ResizeStrategy
 import javax.imageio.IIOImage
@@ -63,7 +62,7 @@ class MainFrame(
   private val gridCheckbox           = new CheckBox("Grid overlay") { selected = true }
   private val simplifyColorsCheckbox = new CheckBox("Simplify to the given number of colors") { selected = false }
   private val simplifyColorsSpinner  = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
-  private val useDistinctCheckbox    = new CheckBox("Treat colors irrelatively of quantity") { selected = false }
+  private val useDistinctCheckbox    = new CheckBox("Treat colors irrespective of quantity") { selected = false }
   private val colorCodeCheckbox      = new CheckBox("Color-code") { selected = false }
 
   private val imageFileSuffixes = ImageIO.getReaderFileSuffixes
@@ -242,7 +241,7 @@ class MainFrame(
       case ValueChanged(`pixelateSlider`)          => attempt(pixelateSliderValueChanged())
       case ValueChanged(`scaleSlider`)             => attempt(scheduleRender())
     }
-    simplifyColorsSpinner.addChangeListener(x => attempt(scheduleRender()))
+    simplifyColorsSpinner.addChangeListener(_ => attempt(scheduleRender()))
 
     title = BuildInfo.fullPrettyName
     size  = new Dimension(1000, 700)
@@ -327,6 +326,7 @@ class MainFrame(
     saveInner(file2, image, ImageIO.getImageWritersByFormatName(fmt).asScala.toList)
   }
 
+  @tailrec
   private def saveInner(
       file: File,
       image: BufferedImage,

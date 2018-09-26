@@ -6,6 +6,7 @@ import java.awt.geom.AffineTransform
 import java.awt.image.AffineTransformOp
 import java.awt.image.BufferedImage
 
+import org.fs.embroidery.ColorUtils._
 import org.fs.embroidery.classify.ColorsSupport
 import org.fs.embroidery.classify.KMeans
 
@@ -52,7 +53,7 @@ class ImageService(isPortrait: => Boolean) {
     InternalImage(new BufferedImage(1, 1, loadedImage.typeInt))
 
   def load(image: BufferedImage): Unit = this.synchronized {
-    loadedImage = InternalImage(image)
+    loadedImage    = InternalImage(image)
     processedImage = loadedImage
   }
 
@@ -65,7 +66,7 @@ class ImageService(isPortrait: => Boolean) {
       simplifyColorsOption: Option[(Int, Boolean, Boolean)]
   ): BufferedImage = this.synchronized {
     val a4 = a4Image
-    canvasImage = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
+    canvasImage    = InternalImage(new BufferedImage(a4.getWidth, a4.getHeight, canvasImage.typeInt))
     processedImage = loadedImage
 
     var colorRefImageOption: Option[InternalImage] = None
@@ -78,12 +79,12 @@ class ImageService(isPortrait: => Boolean) {
       case (n, colorCode, distinctOnly) =>
         val res =
           simplifyColors(processedImage, pixelationStep, colorMap.values.toIndexedSeq, n, colorCode, distinctOnly)
-        processedImage = res._1
+        processedImage      = res._1
         colorRefImageOption = res._2
     }
     if (shouldPaintGrid) {
       processedImage = paintGrid(processedImage, pixelationStep)
-      rulersOption = Some(createRulers(processedImage, pixelationStep))
+      rulersOption   = Some(createRulers(processedImage, pixelationStep))
     }
     rulersOption foreach {
       case Rulers(lr, tb) =>
@@ -177,7 +178,7 @@ class ImageService(isPortrait: => Boolean) {
   private def paintGridInner(
       image: InternalImage,
       pixelationStep: Int,
-      transformRgb: Int => Int
+      transformRgb: RGB => RGB
   ): InternalImage = {
     val resImage = image.copy
     resImage.graphics.setColor(Color.BLACK)
@@ -190,19 +191,6 @@ class ImageService(isPortrait: => Boolean) {
       y <- 0 until resImage.h by (pixelationStep)
     } resImage.inner.setRGB(x, y, transformRgb(image.inner.getRGB(x, y)))
     resImage
-  }
-
-  private def getContrastRgb(rgb: Int): Int = {
-    if (isGrey(rgb)) {
-      0xFF000000
-    } else {
-      0xFFFFFFFF - rgb + 0xFF000000
-    }
-  }
-
-  private def isGrey(rgb: Int): Boolean = {
-    val hsb = ColorUtils.getHsb(rgb)
-    hsb.saturation < 0.2 && (hsb.brightness > 0.3 && hsb.brightness < 0.7)
   }
 
   private def createRulers(image: InternalImage, pixelationStep: Int): Rulers = {
@@ -264,7 +252,7 @@ class ImageService(isPortrait: => Boolean) {
       }
     }
     val colorReferenceImageOption = if (colorCode) Some {
-      InternalImage(new BufferedImage(image.w, fm.getHeight * means.k, defaultImageType))
+      InternalImage(new BufferedImage(resImage.w, fm.getHeight * means.k, defaultImageType))
     } else None
     colorReferenceImageOption foreach { bottomImage =>
       val graphic = bottomImage.graphics
