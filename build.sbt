@@ -1,6 +1,6 @@
 name           := "cross-stitch-converter"
 val prettyName =  "Cross-stitch Converter"
-version        := "0.2"
+version        := "0.2-SNAPSHOT"
 homepage       := Some(url("https://github.com/frozenspider/cross-stitch-converter"))
 scalaVersion   := "2.12.6"
 
