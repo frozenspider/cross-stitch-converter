@@ -9,7 +9,7 @@ import com.typesafe.config.ConfigFactory
 import com.typesafe.config.ConfigRenderOptions
 import org.apache.commons.io.FileUtils
 
-object EmbroideryMarkerMain extends App {
+object CrossStitchConverterMain extends App {
   val configFile = new File("application.conf")
 
   def saveConfig(config: Config): Unit = {

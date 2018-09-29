@@ -3,6 +3,7 @@ package org.fs.embroidery.classify
 import scala.annotation.tailrec
 import scala.util.Random
 
+/** Naïve implementation of k-means clustering algorithm */
 class KMeans[DT] private (
     val centroids: IndexedSeq[DT]
 )(implicit support: KMeans.KMeansSupport[DT]) {
@@ -14,8 +15,8 @@ class KMeans[DT] private (
   /** Classify the given value, returning 0-based index of a cluster (mean) it belongs to */
   def classify(v: DT): Int = {
     // Optimized for performance
-    var minDistance: Double = Double.MaxValue
-    var minCentroidIdx: Int = -1
+    var minDistance:    Double = Double.MaxValue
+    var minCentroidIdx: Int    = -1
     for (idx <- 0 until k) {
       val centroid   = centroids(idx)
       val sqDistance = support.getSquaredDistance(centroid, v)
@@ -35,7 +36,7 @@ class KMeans[DT] private (
 
 object KMeans {
   private val AttemptsNum = 50
-  private val StepsNum    = 10
+  private val StepsNum    = 15
 
   /** Uses avg. squared distance */
   private def distortionCostFunction[DT](
@@ -49,10 +50,11 @@ object KMeans {
     }.sum / m
   }
 
-  def apply[DT: KMeansSupport](k: Int, data: IndexedSeq[DT]): KMeans[DT] = {
+  def apply[DT: KMeansSupport](k: Int, data: IndexedSeq[DT], distinctOnly: Boolean): KMeans[DT] = {
     val support = implicitly[KMeansSupport[DT]]
 
     val distinctData = data.distinct
+    val dataToUse    = if (distinctOnly) distinctData else data
 
     def initClusters(): KMeans[DT] = {
       val meanValues = Random.shuffle(distinctData).take(k)
@@ -61,7 +63,7 @@ object KMeans {
 
     def step(means: KMeans[DT]): KMeans[DT] = {
       // Optimized for performance
-      val dataWithClusterIdx = data map (v => (v, means.classify(v)))
+      val dataWithClusterIdx = dataToUse map (v => (v, means.classify(v)))
       val newMeanValues = for {
         i <- 0 until means.k
         vs = dataWithClusterIdx.collect {
@@ -79,10 +81,10 @@ object KMeans {
       }
     }
 
-    val candidatesWithObjectives = (1 to AttemptsNum).map { _ =>
+    val candidatesWithObjectives = (1 to AttemptsNum).par.map { _ =>
       val initial   = initClusters()
       val result    = iterate(initial, StepsNum)
-      val objective = distortionCostFunction(result, data)
+      val objective = distortionCostFunction(result, dataToUse)
       (result, objective)
     }
     val result = candidatesWithObjectives.minBy(_._2)._1

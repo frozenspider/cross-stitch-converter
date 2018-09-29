@@ -23,9 +23,9 @@ class MouseDragSupport(viewport: JViewport, viewedComponent: JComponent) {
 
   val imageMouseMotionListener: ImageMouseMotionListener =
     new ImageMouseMotionListener {
-      override def mouseMoved(e: ImageMouseEvent): Unit   = {}
+      override def mouseMoved(e: ImageMouseEvent):   Unit = {}
       override def mouseEntered(e: ImageMouseEvent): Unit = {}
-      override def mouseExited(e: ImageMouseEvent): Unit  = refPointOption = None
+      override def mouseExited(e: ImageMouseEvent):  Unit = refPointOption = None
       override def mouseDragged(e: ImageMouseEvent): Unit = refPointOption foreach { refPoint =>
         val deltaX = refPoint.x - e.getOriginalEvent.getX
         val deltaY = refPoint.y - e.getOriginalEvent.getY

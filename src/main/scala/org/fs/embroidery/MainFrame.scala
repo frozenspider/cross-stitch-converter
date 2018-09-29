@@ -1,38 +1,25 @@
 package org.fs.embroidery
 
-import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Font
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
-import java.awt.event.MouseListener
 import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-import scala.collection.JavaConverters
-import scala.concurrent.Future
+import scala.annotation.tailrec
 import scala.swing.BorderPanel
 import scala.swing._
 import scala.swing.event.ButtonClicked
-import scala.swing.event.MouseClicked
 import scala.swing.event.ValueChanged
-import scala.util.Failure
-import scala.util.Success
-import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.Try
 
 import com.typesafe.config.Config
-import com.typesafe.config.ConfigValue
 import com.typesafe.config.ConfigValueFactory
-import hu.kazocsaba.imageviewer.DefaultStatusBar
-import hu.kazocsaba.imageviewer.ImageMouseClickListener
-import hu.kazocsaba.imageviewer.ImageMouseEvent
-import hu.kazocsaba.imageviewer.ImageMouseMotionListener
 import hu.kazocsaba.imageviewer.ImageViewer
-import hu.kazocsaba.imageviewer.Overlay
 import hu.kazocsaba.imageviewer.ResizeStrategy
 import javax.imageio.IIOImage
 import javax.imageio.ImageIO
@@ -41,7 +28,6 @@ import javax.imageio.ImageWriter
 import javax.imageio.metadata.IIOMetadata
 import javax.imageio.metadata.IIOMetadataNode
 import javax.swing.AbstractAction
-import org.slf4s.Logging
 import javax.swing.BorderFactory
 import javax.swing.JComponent
 import javax.swing.JLayeredPane
@@ -50,10 +36,13 @@ import javax.swing.JSpinner
 import javax.swing.KeyStroke
 import javax.swing.SpinnerNumberModel
 import javax.swing.SwingUtilities
+import javax.swing.ToolTipManager
+import javax.swing.TransferHandler
 import javax.swing.WindowConstants
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.filechooser.FileSystemView
 import org.apache.commons.io.FilenameUtils
+import org.slf4s.Logging
 
 class MainFrame(
     var config: Config,
@@ -70,25 +59,29 @@ class MainFrame(
   private val landscapeRadioButton   = new RadioButton("Landscape") { selected = false }
   private val dominantRadioButton    = new RadioButton("Dominant") { selected = true }
   private val averageRadioButton     = new RadioButton("Average") { selected = false }
+  private val gridCheckbox           = new CheckBox("Grid overlay") { selected = true }
   private val simplifyColorsCheckbox = new CheckBox("Simplify to the given number of colors") { selected = false }
   private val simplifyColorsSpinner  = new JSpinner(new SpinnerNumberModel(3, 2, 20, 1))
-  private val colorCodeCheckbox      = new CheckBox("and color-code") { selected = false }
+  private val useDistinctCheckbox    = new CheckBox("Treat colors irrespective of quantity") { selected = false }
+  private val colorCodeCheckbox      = new CheckBox("Color-code") { selected = false }
+
+  private val imageFileSuffixes = ImageIO.getReaderFileSuffixes
 
   private val pixelateSlider = new Slider {
-    paintTicks = true
-    paintLabels = true
-    snapToTicks = true
+    paintTicks       = true
+    paintLabels      = true
+    snapToTicks      = true
     minorTickSpacing = 1
-    min = 3
+    min              = 3
   }
   private val scaleSlider = new Slider {
     import Scaling._
-    paintTicks = true
-    paintLabels = true
+    paintTicks       = true
+    paintLabels      = true
     minorTickSpacing = LogCoeff
-    min = -LogCoeff * 2
-    max = LogCoeff * 2
-    value = 0
+    min              = -LogCoeff * 2
+    max              = LogCoeff * 2
+    value            = 0
     labels = Map(
       (-LogCoeff * 2)                    -> new Label("x0.01"),
       (-LogCoeff * math.log10(20)).toInt -> new Label("x0.05"),
@@ -102,19 +95,13 @@ class MainFrame(
     )
   }
 
-  private val imagesService = new ImagesService(portraitRadioButton.selected)
+  private val imageService = new ImageService(portraitRadioButton.selected)
 
   //
   // Initialization block
   //
 
-  // TODO: Clipboard
-  // TODO: Drag-n-drop
-  // TODO: Mouse controls
-
   attempt {
-    saveButton.enabled = false
-
     val zoomCoeff = 1.2
     val viewerScrollPane = viewer.getComponent
       .getComponent(0)
@@ -148,17 +135,6 @@ class MainFrame(
       e.consume()
     })
 
-    viewer.setStatusBar(new DefaultStatusBar {
-      override def updateLabel(image: BufferedImage, x: Int, y: Int, availableWidth: Int): Unit = {
-        super.updateLabel(image, x, y, availableWidth)
-        val newText = label.getText +
-          ", zoom " + viewer.getZoomFactor +
-          ", color " + ColorCoder.classifyColor(image.getRGB(x, y))
-        label.setText(newText)
-      }
-    })
-    viewer.setStatusBarVisible(true)
-
     viewer.addOverlay((g: Graphics2D, image: BufferedImage, transform: AffineTransform) => {
       g.setColor(Color.DARK_GRAY)
       val (w, h) = (image.getWidth - 1, image.getHeight - 1)
@@ -178,7 +154,7 @@ class MainFrame(
         peer.getActionMap.put(key, (_ => f): AbstractAction)
       }
 
-      import BorderPanel.Position._
+      import scala.swing.BorderPanel.Position._
       val topPanel = new BorderPanel {
         layout(
           new FlowPanel(
@@ -203,21 +179,28 @@ class MainFrame(
               border = BorderFactory.createTitledBorder("Pixelation mode")
               contents += dominantRadioButton
               contents += averageRadioButton
+              contents += new Separator(Orientation.Vertical)
+              contents += gridCheckbox
             },
-            new BoxPanel(Orientation.Horizontal) {
+            new BoxPanel(Orientation.Vertical) {
               border = BorderFactory.createTitledBorder("Color simplification")
-              contents += simplifyColorsCheckbox
-              contents += Component.wrap(simplifyColorsSpinner)
-              contents += colorCodeCheckbox
+              contents += new FlowPanel(
+                simplifyColorsCheckbox,
+                Component.wrap(simplifyColorsSpinner)
+              ) { vGap = 0; hGap = 0 }
+              contents += new FlowPanel(
+                colorCodeCheckbox,
+                useDistinctCheckbox
+              ) { vGap = 0; hGap = 0 }
             }
           )
           contents += new BorderPanel {
-            layout(new Label("Pixelation step:")) = West
-            layout(pixelateSlider) = Center
+            layout(new Label("Pixelation step")) = West
+            layout(pixelateSlider)               = Center
           }
           contents += new BorderPanel {
             layout(new Label("Scale:")) = West
-            layout(scaleSlider) = Center
+            layout(scaleSlider)         = Center
           }
         }
         layout(configPanel) = South
@@ -226,16 +209,8 @@ class MainFrame(
       val bottomPanel = new BorderPanel {}
       layout(bottomPanel) = South
       addHotkey("save", KeyEvent.VK_S, InputEvent.CTRL_MASK, attempt(saveClicked()))
+      addHotkey("paste", KeyEvent.VK_V, InputEvent.CTRL_MASK, attempt(paste()))
     }
-    def styleComponents(): Unit = {
-//      pixelateSlider.margin = new Insets(0, 2, 0, 2)
-//      findFromStartBtn.margin = new Insets(0, 2, 0, 2)
-//      pasteLeftBtn.margin = new Insets(2, 2, 2, 2)
-//      pasteRightBtn.margin = new Insets(2, 2, 2, 2)
-//      editorScrollPane.border = defaultBorder
-//      editorScrollPane.preferredSize = new Dimension(0, 100)
-    }
-    styleComponents()
 
     listenTo(
       loadButton,
@@ -246,8 +221,10 @@ class MainFrame(
       landscapeRadioButton,
       dominantRadioButton,
       averageRadioButton,
+      gridCheckbox,
       simplifyColorsCheckbox,
-      colorCodeCheckbox
+      useDistinctCheckbox,
+      colorCodeCheckbox,
     )
     // Button reactions
     reactions += {
@@ -257,20 +234,26 @@ class MainFrame(
       case ButtonClicked(`landscapeRadioButton`)   => attempt(scheduleRender())
       case ButtonClicked(`dominantRadioButton`)    => attempt(scheduleRender())
       case ButtonClicked(`averageRadioButton`)     => attempt(scheduleRender())
+      case ButtonClicked(`gridCheckbox`)           => attempt(scheduleRender())
       case ButtonClicked(`simplifyColorsCheckbox`) => attempt(simplifyColorsCheckboxClicked())
+      case ButtonClicked(`useDistinctCheckbox`)    => attempt(scheduleRender())
       case ButtonClicked(`colorCodeCheckbox`)      => attempt(scheduleRender())
-      case ValueChanged(`pixelateSlider`)          => attempt(scheduleRender())
+      case ValueChanged(`pixelateSlider`)          => attempt(pixelateSliderValueChanged())
       case ValueChanged(`scaleSlider`)             => attempt(scheduleRender())
     }
-    simplifyColorsSpinner.addChangeListener(x => attempt(scheduleRender()))
+    simplifyColorsSpinner.addChangeListener(_ => attempt(scheduleRender()))
 
     title = BuildInfo.fullPrettyName
-    size = new Dimension(1000, 700)
+    size  = new Dimension(1000, 700)
     peer.setLocationRelativeTo(null)
     peer.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
+    peer.setTransferHandler(DataTransferHandler)
+    ToolTipManager.sharedInstance().setInitialDelay(0)
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
-    colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
+    useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
+    colorCodeCheckbox.enabled   = simplifyColorsCheckbox.selected
+    saveButton.enabled          = false
 
     // load(new File("_build/img.png"))
     initComplete.set(true)
@@ -293,14 +276,25 @@ class MainFrame(
   private def loadClicked(): Unit = {
     val fc = createFileChooser(
       getConfigStringOr(MainFrame.LoadFilePath, defaultPath),
-      ("Images", Seq("jpg", "jpeg", "gif", "png"))
+      ("Images", imageFileSuffixes)
     )
     fc.showOpenDialog(this) match {
-      case FileChooser.Result.Approve =>
-        updateConfigString(MainFrame.LoadFilePath, fc.selectedFile.getParentFile.getAbsolutePath)
-        load(fc.selectedFile)
-      case _ => // NOOP
+      case FileChooser.Result.Approve => load(fc.selectedFile)
+      case _                          => // NOOP
     }
+  }
+
+  private def load(file: File): Unit = {
+    updateConfigString(MainFrame.LoadFilePath, file.getParentFile.getAbsolutePath)
+    load(ImageIO.read(file))
+  }
+
+  private def load(image: BufferedImage): Unit = {
+    saveButton.enabled   = true
+    pixelateSlider.value = 10
+    scaleSlider.value    = 0
+    imageService.load(image)
+    RenderAsync.enqueue()
   }
 
   private def saveClicked(): Unit = {
@@ -324,23 +318,15 @@ class MainFrame(
     }
   }
 
-  private def load(file: File): Unit = {
-    saveButton.enabled = true
-    val image = ImageIO.read(file)
-    pixelateSlider.value = 10
-    scaleSlider.value = 0
-    imagesService.load(image)
-    RenderAsync.enqueue()
-  }
-
   private def save(file: File): Unit = {
-    import JavaConverters._
-    val image = imagesService.previousUpdatedImage
+    import scala.collection.JavaConverters._
+    val image = imageService.previousUpdatedImage
     val fmt   = "png"
     val file2 = if (FilenameUtils.isExtension(file.getName, fmt)) file else new File(file.getAbsolutePath + ".png")
     saveInner(file2, image, ImageIO.getImageWritersByFormatName(fmt).asScala.toList)
   }
 
+  @tailrec
   private def saveInner(
       file: File,
       image: BufferedImage,
@@ -370,10 +356,15 @@ class MainFrame(
       }
   }
 
+  private def paste(): Unit = {
+    val clipboard = Toolkit.getDefaultToolkit.getSystemClipboard
+    DataTransferHandler.importDataInner(clipboard.isDataFlavorAvailable, clipboard.getData)
+  }
+
   private def setPngDpi(metadata: IIOMetadata): Unit = {
     val cmPerInch = 2.54
     // For PMG, it's dots per millimeter
-    val dotsPerMilli = imagesService.dpi.toDouble / 10 / cmPerInch
+    val dotsPerMilli = imageService.dpi.toDouble / 10 / cmPerInch
 
     val horiz = new IIOMetadataNode("HorizontalPixelSize")
     val vert  = new IIOMetadataNode("VerticalPixelSize")
@@ -389,7 +380,14 @@ class MainFrame(
 
   private def simplifyColorsCheckboxClicked(): Unit = {
     simplifyColorsSpinner.setEnabled(simplifyColorsCheckbox.selected)
-    colorCodeCheckbox.enabled = simplifyColorsCheckbox.selected
+    useDistinctCheckbox.enabled = simplifyColorsCheckbox.selected
+    colorCodeCheckbox.enabled   = simplifyColorsCheckbox.selected
+    scheduleRender()
+  }
+
+  private def pixelateSliderValueChanged(): Unit = {
+    val mmValue = imageService.mmPerPixel * pixelateSlider.value
+    pixelateSlider.tooltip = s"${pixelateSlider.value} px = $mmValue mm"
     scheduleRender()
   }
 
@@ -444,6 +442,52 @@ class MainFrame(
     saveConfig(config)
   }
 
+  object DataTransferHandler extends TransferHandler {
+    import scala.collection.JavaConverters._
+
+    private val fileListFlavor = DataFlavor.javaFileListFlavor
+    private val imageFlavor    = DataFlavor.imageFlavor
+
+    override def canImport(support: TransferHandler.TransferSupport): Boolean = {
+      if (!support.isDrop) {
+        false
+      } else {
+        // We cannot invoke support.getTransferable.getTransferData here!
+        // See https://bugs.java.com/bugdatabase/view_bug.do?bug_id=6759788
+        support.isDataFlavorSupported(fileListFlavor)
+      }
+    }
+
+    override def importData(support: TransferHandler.TransferSupport): Boolean = {
+      importDataInner(support.isDataFlavorSupported, support.getTransferable.getTransferData)
+    }
+
+    /** Import data from flavored source, used for both drag-n-drop and clipboard paste */
+    def importDataInner(
+        checkDataFlavor: DataFlavor => Boolean,
+        getData: DataFlavor => Object
+    ): Boolean = {
+      if (checkDataFlavor(fileListFlavor)) {
+        val data = getData(fileListFlavor).asInstanceOf[java.util.List[File]].asScala
+        val file = data.head
+        if (data.tail.nonEmpty || !imageFileSuffixes.contains(FilenameUtils.getExtension(file.getName).toLowerCase)) {
+          false
+        } else {
+          val attempt = Try(load(file))
+          attempt.failed foreach showError
+          attempt.isSuccess
+        }
+      } else if (checkDataFlavor(imageFlavor)) {
+        val image   = getData(imageFlavor).asInstanceOf[BufferedImage]
+        val attempt = Try(load(image))
+        attempt.failed foreach showError
+        attempt.isSuccess
+      } else {
+        false
+      }
+    }
+  }
+
   object Scaling {
     val LogCoeff = 100
 
@@ -488,22 +532,27 @@ class MainFrame(
       val pixelationMode = if (dominantRadioButton.selected) Pixelator.Mode.Dominant else Pixelator.Mode.Average
       val simplifyColorsOption =
         if (simplifyColorsCheckbox.selected)
-          Some((simplifyColorsSpinner.getValue.asInstanceOf[Int], colorCodeCheckbox.selected))
+          Some(
+            (
+              simplifyColorsSpinner.getValue.asInstanceOf[Int],
+              colorCodeCheckbox.selected,
+              useDistinctCheckbox.selected))
         else
           None
-      val canvasImage = imagesService.updatedCanvas(
+      val canvasImage = imageService.updatedCanvas(
         scalingFactor,
         pixelateSlider.value,
         pixelationMode,
+        gridCheckbox.selected,
         simplifyColorsOption
       )
-      val innerImage = imagesService.previousUpdatedImage
+      val innerImage = imageService.previousUpdatedImage
 
       SwingUtilities.invokeAndWait(() => {
         viewer.setImage(canvasImage)
 
         val pixelateMax = ((innerImage.getWidth min innerImage.getHeight) / 10) max 10
-        pixelateSlider.max = pixelateMax
+        pixelateSlider.max              = pixelateMax
         pixelateSlider.majorTickSpacing = pixelateMax / 3
         pixelateSlider.labels = {
           val range = pixelateSlider.min +: (10 until pixelateSlider.max by 10) :+ pixelateSlider.max
